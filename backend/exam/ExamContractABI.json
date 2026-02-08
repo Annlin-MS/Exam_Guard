@@ -1,0 +1,163 @@
+[
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_examId",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "_studentHash",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "_resultHash",
+				"type": "bytes32"
+			}
+		],
+		"name": "commitResult",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_examId",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "_questionHash",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_startTime",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_endTime",
+				"type": "uint256"
+			}
+		],
+		"name": "registerExam",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"inputs": [],
+		"name": "admin",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "exams",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "examId",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "questionHash",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint256",
+				"name": "startTime",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "endTime",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bool",
+				"name": "exists",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_examId",
+				"type": "uint256"
+			}
+		],
+		"name": "getExam",
+		"outputs": [
+			{
+				"internalType": "bytes32",
+				"name": "",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_examId",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "_studentHash",
+				"type": "bytes32"
+			}
+		],
+		"name": "getResult",
+		"outputs": [
+			{
+				"internalType": "bytes32",
+				"name": "",
+				"type": "bytes32"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]
