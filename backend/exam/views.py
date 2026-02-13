@@ -1,6 +1,10 @@
+from datetime import datetime, timedelta
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.authtoken.models import Token
+from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 import json
 import hashlib
@@ -8,6 +12,8 @@ import hashlib
 from django.utils import timezone
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate
+
 
 from cryptography.fernet import Fernet
 
@@ -20,6 +26,7 @@ from .models import (
 )
 
 from .blockchain import contract, web3
+
 
 User = get_user_model()
 
@@ -458,3 +465,64 @@ def student_my_result(request, exam_id):
         'result_hash': result.result_hash,
         'submitted_at': student_exam.end_time,
     })
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_exams(request):
+    now = timezone.localtime()
+    exams = Exam.objects.all().order_by('-created_at')
+
+    data = []
+
+    for exam in exams:
+        start_dt = timezone.make_aware(
+            datetime.combine(exam.exam_date, exam.start_time)
+        )
+        end_dt = start_dt + timedelta(minutes=exam.duration_minutes)
+
+        # 🔹 Dynamic status logic
+        if now < start_dt:
+            status = "UPCOMING"
+        elif start_dt <= now <= end_dt:
+            status = "ONGOING"
+        else:
+            status = "COMPLETED"
+
+        data.append({
+            "id": exam.id,
+            "exam_name": exam.exam_name,
+            "exam_date": exam.exam_date,
+            "start_time": exam.start_time,
+            "duration_minutes": exam.duration_minutes,
+            "status": status,  # ✅ dynamic, not DB value
+        })
+
+    return Response(data)
+
+@api_view(['POST'])
+def login_user(request):
+    username = request.data.get("username")
+    password = request.data.get("password")
+
+    user = authenticate(username=username, password=password)
+
+    if user is None:
+        return Response({"error": "Invalid credentials"}, status=400)
+
+    token, created = Token.objects.get_or_create(user=user)
+
+    return Response({
+        "token": token.key,
+        "role": user.role
+    })
+
+class CustomAuthToken(ObtainAuthToken):
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        token = Token.objects.get(key=response.data['token'])
+        user = token.user
+
+        return Response({
+            'token': token.key,
+            'role': user.role
+        })

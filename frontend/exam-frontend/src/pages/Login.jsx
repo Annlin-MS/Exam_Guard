@@ -1,57 +1,67 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { loginUser } from "../services/api";
 
-const Login = ({ setUser }) => {
+const Login = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const navigate = useNavigate();
 
   const handleLogin = async (e) => {
-  e.preventDefault();
-  try {
-    const data = await loginUser(username, password);
+    e.preventDefault();
 
-    // ✅ Store token ONLY
-    localStorage.setItem("token", data.token);
+    try {
+      const response = await loginUser(username, password);
+      console.log(response); 
 
-    // Temporary success action
-    alert("Login successful");
+      localStorage.setItem("token", response.token);
+      localStorage.setItem("role", response.role);
 
-    // Reload app (we will route properly next)
-    window.location.reload();
-  } catch (err) {
-    setError("Invalid username or password");
-    console.error(err.response?.data);
-  }
-};
+      if (response.role === "STUDENT") {
+        navigate("/student/dashboard");
+      } else if (response.role === "STAFF") {
+        navigate("/staff/dashboard");
+      } else if (response.role === "ADMIN") {
+        navigate("/admin/dashboard");
+      } else {
+        alert("Unknown role");
+      }
 
-  
+    } catch (error) {
+      alert("Invalid username or password");
+    }
+  };
 
   return (
     <div style={styles.container}>
-      <form style={styles.card} onSubmit={handleLogin}>
+      <div style={styles.card}>
         <h2 style={styles.title}>Exam Guard</h2>
-        <p style={styles.subtitle}>Secure Online Examination System</p>
+        <p style={styles.subtitle}>Secure Examination Portal</p>
 
-        {error && <p style={styles.error}>{error}</p>}
+        <form onSubmit={handleLogin} style={styles.form}>
+          <input
+            type="text"
+            placeholder="Username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            style={styles.input}
+            required
+          />
 
-        <input
-          style={styles.input}
-          placeholder="Username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-        />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={styles.input}
+            required
+          />
 
-        <input
-          style={styles.input}
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-
-        <button style={styles.button}>Login</button>
-      </form>
+          <button type="submit" style={styles.button}>
+            Login
+          </button>
+        </form>
+      </div>
     </div>
   );
 };
@@ -59,47 +69,47 @@ const Login = ({ setUser }) => {
 const styles = {
   container: {
     height: "100vh",
-    background: "#f5f7fb",
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
+    background: "linear-gradient(135deg, #e0e0e0, #e1e9f6)",
   },
   card: {
-    background: "#fff",
+    background: "#ffffff",
     padding: "40px",
     borderRadius: "12px",
-    width: "320px",
-    boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
+    width: "350px",
+    boxShadow: "0 8px 20px rgba(0,0,0,0.2)",
+    textAlign: "center",
   },
   title: {
-    textAlign: "center",
     marginBottom: "5px",
+    color: "#1e3c72",
   },
   subtitle: {
-    textAlign: "center",
-    color: "#6b7280",
-    marginBottom: "20px",
+    fontSize: "14px",
+    color: "#555",
+    marginBottom: "25px",
+  },
+  form: {
+    display: "flex",
+    flexDirection: "column",
   },
   input: {
-    width: "100%",
+    marginBottom: "15px",
     padding: "10px",
-    marginBottom: "12px",
     borderRadius: "6px",
-    border: "1px solid #ddd",
+    border: "1px solid #ccc",
+    fontSize: "14px",
   },
   button: {
-    width: "100%",
     padding: "10px",
-    background: "#2563eb",
-    color: "white",
+    backgroundColor: "#1e3c72",
+    color: "#fff",
     border: "none",
     borderRadius: "6px",
     cursor: "pointer",
-  },
-  error: {
-    color: "red",
-    textAlign: "center",
-    marginBottom: "10px",
+    fontWeight: "bold",
   },
 };
 
