@@ -47,6 +47,15 @@ class Exam(models.Model):
         on_delete=models.CASCADE,
         limit_choices_to={'role': 'ADMIN'}
     )
+    assigned_staff = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_exams',
+        limit_choices_to={'role': 'STAFF'}
+    )
+
 
     created_at = models.DateTimeField(auto_now_add=True)
 

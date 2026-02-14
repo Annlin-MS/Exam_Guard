@@ -469,35 +469,51 @@ def student_my_result(request, exam_id):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_exams(request):
+    user = request.user
     now = timezone.localtime()
-    exams = Exam.objects.all().order_by('-created_at')
 
-    data = []
+    exams = Exam.objects.all()
+    exam_list = []
 
     for exam in exams:
-        start_dt = timezone.make_aware(
-            datetime.combine(exam.exam_date, exam.start_time)
+        start_datetime = timezone.make_aware(
+            timezone.datetime.combine(
+                exam.exam_date,
+                exam.start_time
+            )
         )
-        end_dt = start_dt + timedelta(minutes=exam.duration_minutes)
 
-        # 🔹 Dynamic status logic
-        if now < start_dt:
-            status = "UPCOMING"
-        elif start_dt <= now <= end_dt:
+        end_datetime = start_datetime + timezone.timedelta(
+            minutes=exam.duration_minutes
+        )
+
+        # Student-specific status
+        student_exam = StudentExam.objects.filter(
+            student=user,
+            exam=exam
+        ).first()
+
+        if student_exam and student_exam.status == "SUBMITTED":
+            status = "SUBMITTED"
+        elif now > end_datetime:
+            status = "MISSED"
+        elif start_datetime <= now <= end_datetime:
             status = "ONGOING"
         else:
-            status = "COMPLETED"
+            status = "UPCOMING"
 
-        data.append({
+        exam_list.append({
             "id": exam.id,
             "exam_name": exam.exam_name,
             "exam_date": exam.exam_date,
             "start_time": exam.start_time,
-            "duration_minutes": exam.duration_minutes,
-            "status": status,  # ✅ dynamic, not DB value
+            "end_time": end_datetime.time(),
+            "duration": exam.duration_minutes,
+            "status": status
         })
 
-    return Response(data)
+    return Response(exam_list)
+
 
 @api_view(['POST'])
 def login_user(request):
