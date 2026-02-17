@@ -22,10 +22,13 @@ class User(AbstractUser):
 # EXAM MODEL
 # =================================================
 class Exam(models.Model):
-    STATUS_CHOICES = (
-        ('UPCOMING', 'Upcoming'),
-        ('ONGOING', 'Ongoing'),
-        ('COMPLETED', 'Completed'),
+
+    WORKFLOW_STATUS = (
+        ('DRAFT', 'Draft'),
+        ('SUBMITTED', 'Submitted For Approval'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+        ('LOCKED', 'Locked')
     )
 
     exam_name = models.CharField(max_length=200)
@@ -36,10 +39,11 @@ class Exam(models.Model):
     marks_correct = models.IntegerField(default=4)
     marks_wrong = models.IntegerField(default=-1)
 
-    status = models.CharField(
-        max_length=10,
-        choices=STATUS_CHOICES,
-        default='UPCOMING'
+    workflow_status = models.CharField(
+        max_length=20,
+        choices=WORKFLOW_STATUS,
+        default='DRAFT',
+        db_index=True
     )
 
     created_by = models.ForeignKey(
@@ -47,6 +51,7 @@ class Exam(models.Model):
         on_delete=models.CASCADE,
         limit_choices_to={'role': 'ADMIN'}
     )
+
     assigned_staff = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -56,11 +61,11 @@ class Exam(models.Model):
         limit_choices_to={'role': 'STAFF'}
     )
 
-
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.exam_name
+
 
 
 # =================================================
@@ -118,7 +123,7 @@ class QuestionPaper(models.Model):
     )
 
     # 🔐 Integrity fields
-    question_hash = models.CharField(max_length=64)
+    question_hash = models.CharField(max_length=64, blank=True)
     ipfs_cid = models.CharField(max_length=255, blank=True, null=True)
     blockchain_tx_hash = models.CharField(max_length=255, blank=True, null=True)
 
@@ -148,7 +153,8 @@ class StudentExam(models.Model):
 
     exam = models.ForeignKey(
         Exam,
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
+        related_name='student_attempts'
     )
 
     start_time = models.DateTimeField(auto_now_add=True)

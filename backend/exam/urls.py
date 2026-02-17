@@ -11,6 +11,8 @@ from .views import (
     list_exams,
     login_user,
     CustomAuthToken,
+    submit_for_approval,
+    approve_exam,
 )
 
 urlpatterns = [
@@ -37,6 +39,8 @@ urlpatterns = [
     path('exams/<int:exam_id>/my-result/',student_my_result),
     path('login/', login_user),
     path('api-token-auth/', CustomAuthToken.as_view()),
+    path('exams/<int:exam_id>/submit-for-approval/', submit_for_approval),
+    path('exams/<int:exam_id>/approve/', approve_exam),
 
 
 ]

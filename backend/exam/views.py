@@ -22,7 +22,7 @@ from .models import (
     QuestionPaper,
     StudentExam,
     Result,
-    Question
+    Question,
 )
 
 from .blockchain import contract, web3
@@ -49,9 +49,20 @@ def start_exam(request, exam_id):
         return Response({'error': 'Exam not found'}, status=404)
 
     # Time check
-    now = timezone.now().time()
-    if now < exam.start_time:
-        return Response({'error': 'Exam has not started yet'}, status=403)
+    exam_start = timezone.make_aware(
+    datetime.combine(exam.exam_date, exam.start_time)
+    )   
+
+    exam_end = exam_start + timedelta(minutes=exam.duration_minutes)
+
+    now = timezone.now()
+
+    if now < exam_start:
+     return Response({'error': 'Exam has not started yet'}, status=403)
+
+    if now > exam_end:
+     return Response({'error': 'Exam time is over'}, status=403)
+
 
     student_exam, created = StudentExam.objects.get_or_create(
         student=user,
@@ -235,6 +246,19 @@ def lock_question_paper(request, exam_id):
         exam = Exam.objects.get(id=exam_id)
     except Exam.DoesNotExist:
         return Response({'error': 'Exam not found'}, status=404)
+    
+    # ✅ NEW SECURITY CHECK (ADD HERE)
+    if exam.assigned_staff_id != user.id:
+     return Response( {'error': 'Not assigned to this exam'},
+        status=403
+    )
+
+    # 🔴 NEW: Check if admin approved
+    if exam.workflow_status != 'APPROVED':
+        return Response(
+            {'error': 'Exam not approved by admin'},
+            status=400
+        )
 
     # 🔹 CREATE QuestionPaper automatically if not exists
     qp, created = QuestionPaper.objects.get_or_create(
@@ -255,7 +279,6 @@ def lock_question_paper(request, exam_id):
 
     # Fetch questions
     questions = exam.questions.all().order_by('id')
-    print("QUESTION COUNT:", questions.count())
 
     if not questions.exists():
         return Response(
@@ -306,16 +329,20 @@ def lock_question_paper(request, exam_id):
     except Exception as e:
         return Response({'error': str(e)}, status=500)
 
+    # Save blockchain tx
     qp.blockchain_tx_hash = tx_hash.hex()
     qp.is_locked = True
     qp.save()
 
-    print("QP HASH:", qp.question_hash)
+    # 🔴 NEW: Update exam workflow status
+    exam.workflow_status = 'LOCKED'
+    exam.save()
 
     return Response({
         'message': 'Question paper locked successfully',
         'blockchain_tx_hash': qp.blockchain_tx_hash
     })
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -372,62 +399,46 @@ def verify_question_paper(request, exam_id):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def verify_result(request, exam_id, student_id):
+
     user = request.user
 
-    # 🔐 Only ADMIN can verify results
-    if user.role != 'ADMIN':
-        return Response(
-            {'error': 'Only admin can verify results'},
-            status=403
-        )
+    # Role check
+    if user.role == 'ADMIN':
+        pass
+    elif user.role == 'STUDENT' and user.id == student_id:
+        pass
+    else:
+        return Response({'error': 'Not allowed'}, status=403)
 
-    # 1️⃣ Fetch exam
-    try:
-        exam = Exam.objects.get(id=exam_id)
-    except Exam.DoesNotExist:
-        return Response({'error': 'Exam not found'}, status=404)
-
-    # 2️⃣ Fetch student
-    try:
-        student = User.objects.get(id=student_id, role='STUDENT')
-    except User.DoesNotExist:
-        return Response({'error': 'Student not found'}, status=404)
-
-    # 3️⃣ Fetch StudentExam
     try:
         student_exam = StudentExam.objects.get(
-            exam=exam,
-            student=student
+            exam_id=exam_id,
+            student_id=student_id
         )
     except StudentExam.DoesNotExist:
-        return Response({'error': 'Student has not attempted this exam'}, status=404)
+        return Response({'error': 'Result not found'}, status=404)
 
-    # 4️⃣ Fetch Result
     try:
         result = Result.objects.get(student_exam=student_exam)
     except Result.DoesNotExist:
-        return Response({'error': 'Result not found'}, status=404)
+        return Response({'error': 'Result record missing'}, status=404)
 
-    # 5️⃣ Rebuild result hash (LOCAL)
     result_string = (
-        f"{exam.id}|{student.id}|{result.score}|"
+        f"{exam_id}|{student_id}|{result.score}|"
         f"{student_exam.end_time.isoformat()}"
     )
-    local_hash = hashlib.sha256(result_string.encode()).hexdigest()
 
-    # 6️⃣ Compare hashes
-    if local_hash == result.result_hash:
-        return Response({
-            'status': 'VERIFIED',
-            'message': 'Result integrity verified. No tampering detected.',
-            'score': result.score
-        })
-    else:
-        return Response({
-            'status': 'TAMPERED',
-            'message': 'Result mismatch detected! Possible tampering.',
-            'score': result.score
-        })
+    local_hash = hashlib.sha256(result_string.encode()).hexdigest()
+    student_hash = hashlib.sha256(str(student_id).encode()).hexdigest()
+
+    return Response({
+        "local_hash": local_hash,
+        "local_hash_length": len(local_hash),
+        "student_hash": student_hash,
+        "student_hash_length": len(student_hash)
+    })
+
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -542,3 +553,72 @@ class CustomAuthToken(ObtainAuthToken):
             'token': token.key,
             'role': user.role
         })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_for_approval(request, exam_id):
+    user = request.user
+
+    if user.role != 'STAFF':
+        return Response({'error': 'Only staff allowed'}, status=403)
+
+    try:
+        exam = Exam.objects.get(id=exam_id)
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+    if exam.assigned_staff != user:
+        return Response({'error': 'Not assigned to this exam'}, status=403)
+    
+    if exam.workflow_status != 'DRAFT':
+        return Response({'error': 'Exam already submitted for approval or processed'}, status=400)
+
+    exam.workflow_status = 'SUBMITTED'
+    exam.save()
+
+    return Response({'message': 'Submitted for admin approval'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def approve_exam(request, exam_id):
+    user = request.user
+
+    if user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    try:
+        exam = Exam.objects.get(id=exam_id)
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+    if exam.workflow_status != 'SUBMITTED':
+        return Response({'error': 'Exam not submitted yet'}, status=400)
+
+    exam.workflow_status = 'APPROVED'
+    exam.save()
+
+    return Response({'message': 'Exam approved successfully'})
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def reject_exam(request, exam_id):
+    user = request.user
+
+    if user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    try:
+        exam = Exam.objects.get(id=exam_id)
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+    if exam.workflow_status != 'SUBMITTED':
+        return Response({'error': 'Exam not submitted yet'}, status=400)
+
+    exam.workflow_status = 'DRAFT'
+    exam.save()
+
+    return Response({'message': 'Exam rejected and returned to staff'})
+
