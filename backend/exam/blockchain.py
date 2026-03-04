@@ -15,7 +15,7 @@ with open(abi_path) as f:
 
 # Contract address (PASTE YOURS)
 CONTRACT_ADDRESS = Web3.to_checksum_address(
-    "0xcD6a42782d230D7c13A74ddec5dD140e55499Df9"
+    "0x8748e63993803b758dc097E9212202a3614bA80B"
 )
 
 contract = web3.eth.contract(

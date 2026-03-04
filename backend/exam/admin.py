@@ -35,6 +35,7 @@ class ExamAdmin(admin.ModelAdmin):
     list_filter = ('workflow_status', 'exam_date')
     search_fields = ('exam_name',)
 
+
     actions = ['approve_exams', 'reject_exams']
 
     # 🔹 Approve Action

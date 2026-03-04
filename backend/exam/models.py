@@ -35,6 +35,7 @@ class Exam(models.Model):
     exam_date = models.DateField()
     start_time = models.TimeField()
     duration_minutes = models.IntegerField()
+    total_questions_allowed = models.IntegerField(default=10)
 
     marks_correct = models.IntegerField(default=4)
     marks_wrong = models.IntegerField(default=-1)
@@ -60,6 +61,12 @@ class Exam(models.Model):
         related_name='assigned_exams',
         limit_choices_to={'role': 'STAFF'}
     )
+    enrolled_students = models.ManyToManyField(
+    User,
+    related_name='enrolled_exams',
+    blank=True,
+    limit_choices_to={'role': 'STUDENT'}
+)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -105,6 +112,11 @@ class Question(models.Model):
 
     def __str__(self):
         return f"{self.exam.exam_name} - {self.question_text[:40]}"
+    
+    def save(self, *args, **kwargs):
+     if self.exam.workflow_status == 'LOCKED':
+        raise ValueError("Cannot modify questions after exam is locked")
+     super().save(*args, **kwargs)
 
 
 # =================================================
@@ -189,3 +201,25 @@ class Result(models.Model):
 
     def __str__(self):
         return f"Result: {self.student_exam}"
+
+class AuditLog(models.Model):
+
+    ACTION_TYPES = (
+        ('CREATE_EXAM', 'Create Exam'),
+        ('APPROVE_EXAM', 'Approve Exam'),
+        ('LOCK_PAPER', 'Lock Question Paper'),
+        ('ENROLL_STUDENT', 'Enroll Student'),
+        ('SUBMIT_EXAM', 'Submit Exam'),
+        ('COMMIT_RESULT', 'Commit Result'),
+    )
+
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    action_type = models.CharField(max_length=50, choices=ACTION_TYPES)
+    description = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user} - {self.action_type}"
+    
+    
+    

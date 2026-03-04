@@ -5,39 +5,50 @@ import { loginUser } from "../services/api";
 const Login = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
-    e.preventDefault();
+   e.preventDefault();
+   console.log("LOGIN BUTTON CLICKED");
+   setLoading(true);
+   setError("");
 
-    try {
-      const response = await loginUser(username, password);
-      console.log(response); 
+  try {
+    const response = await loginUser(username, password);
 
-      localStorage.setItem("token", response.token);
-      localStorage.setItem("role", response.role);
+    localStorage.setItem("token", response.token);
+    localStorage.setItem("role", response.role);
 
-      if (response.role === "STUDENT") {
-        navigate("/student/dashboard");
-      } else if (response.role === "STAFF") {
-        navigate("/staff/dashboard");
-      } else if (response.role === "ADMIN") {
-        navigate("/admin/dashboard");
-      } else {
-        alert("Unknown role");
-      }
-
-    } catch (error) {
-      alert("Invalid username or password");
+    if (response.role === "STUDENT") {
+      navigate("/student/dashboard");
+    } else if (response.role === "STAFF") {
+      navigate("/staff/dashboard");
+    } else if (response.role === "ADMIN") {
+      navigate("/admin/dashboard");
+    } else {
+      setError("Unknown role");
     }
-  };
+
+  } catch (error) {
+    setError("Invalid username or password");
+  } finally {
+    setLoading(false);
+  }
+};
+  
 
   return (
     <div style={styles.container}>
       <div style={styles.card}>
         <h2 style={styles.title}>Exam Guard</h2>
         <p style={styles.subtitle}>Secure Examination Portal</p>
-
+        {error && (
+           <p style={{ color: "red", fontSize: "13px", marginBottom: "10px" }}>
+             {error}
+           </p>
+      )}
         <form onSubmit={handleLogin} style={styles.form}>
           <input
             type="text"
@@ -57,9 +68,13 @@ const Login = () => {
             required
           />
 
-          <button type="submit" style={styles.button}>
-            Login
-          </button>
+          <button
+            type="submit"
+            style={styles.button}
+            disabled={loading}
+          >
+          {loading ? "Logging in..." : "Login"}
+       </button>
         </form>
       </div>
     </div>

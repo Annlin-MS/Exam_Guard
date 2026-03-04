@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.response import Response
@@ -23,12 +23,19 @@ from .models import (
     StudentExam,
     Result,
     Question,
+    AuditLog,
 )
 
 from .blockchain import contract, web3
 
 
 User = get_user_model()
+def create_audit_log(user, action_type, description):
+    AuditLog.objects.create(
+        user=user,
+        action_type=action_type,
+        description=description
+    )
 
 # -------------------------------------------------
 # API 1: START EXAM (Student)
@@ -185,6 +192,11 @@ def submit_exam(request, exam_id):
         score=score,
         result_hash=result_hash
     )
+    create_audit_log(
+      request.user,
+      'SUBMIT_EXAM',
+      f"Submitted exam: {exam.exam_name}"
+)
 
     return Response({
         'message': 'Exam submitted successfully',
@@ -279,6 +291,15 @@ def lock_question_paper(request, exam_id):
 
     # Fetch questions
     questions = exam.questions.all().order_by('id')
+    
+    if questions.count() != exam.total_questions_allowed:
+     return Response(
+        {
+            'error': f'Exam requires {exam.total_questions_allowed} questions. '
+                     f'Currently added: {questions.count()}'
+        },
+        status=400
+    )
 
     if not questions.exists():
         return Response(
@@ -337,6 +358,12 @@ def lock_question_paper(request, exam_id):
     # 🔴 NEW: Update exam workflow status
     exam.workflow_status = 'LOCKED'
     exam.save()
+
+    create_audit_log(
+    request.user,
+    'LOCK_PAPER',
+    f"Locked question paper for {exam.exam_name}"
+)
 
     return Response({
         'message': 'Question paper locked successfully',
@@ -431,13 +458,25 @@ def verify_result(request, exam_id, student_id):
     local_hash = hashlib.sha256(result_string.encode()).hexdigest()
     student_hash = hashlib.sha256(str(student_id).encode()).hexdigest()
 
+    # 🔥 ADD BLOCKCHAIN FETCH HERE
+    try:
+        blockchain_hash = contract.functions.getResult(
+            exam_id,
+            bytes.fromhex(student_hash)
+        ).call()
+
+        blockchain_hash_hex = blockchain_hash.hex()
+    except Exception as e:
+        return Response({"blockchain_error": str(e)}, status=500)
+
+    # 🔥 RETURN EVERYTHING FOR DEBUG
     return Response({
         "local_hash": local_hash,
         "local_hash_length": len(local_hash),
         "student_hash": student_hash,
-        "student_hash_length": len(student_hash)
+        "blockchain_hash": blockchain_hash_hex,
+        "blockchain_hash_length": len(blockchain_hash_hex)
     })
-
 
 
 @api_view(['GET'])
@@ -483,7 +522,14 @@ def list_exams(request):
     user = request.user
     now = timezone.localtime()
 
-    exams = Exam.objects.all()
+    # 🔥 Role-based exam visibility
+    if user.role == 'STUDENT':
+        exams = user.enrolled_exams.all()
+    elif user.role == 'STAFF':
+        exams = Exam.objects.filter(assigned_staff=user)
+    else:  # ADMIN
+        exams = Exam.objects.all()
+
     exam_list = []
 
     for exam in exams:
@@ -498,7 +544,6 @@ def list_exams(request):
             minutes=exam.duration_minutes
         )
 
-        # Student-specific status
         student_exam = StudentExam.objects.filter(
             student=user,
             exam=exam
@@ -526,33 +571,29 @@ def list_exams(request):
     return Response(exam_list)
 
 
+
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def login_user(request):
+    print("✅ LOGIN HIT")
+    print("RAW BODY:", request.body)
+    print("DATA:", request.data)
+    
     username = request.data.get("username")
     password = request.data.get("password")
-
+    
+    print("USERNAME:", username)
+    print("PASSWORD:", password)
+    
     user = authenticate(username=username, password=password)
-
+    print("AUTH RESULT:", user)
+    
     if user is None:
         return Response({"error": "Invalid credentials"}, status=400)
 
     token, created = Token.objects.get_or_create(user=user)
+    return Response({"token": token.key, "role": user.role})
 
-    return Response({
-        "token": token.key,
-        "role": user.role
-    })
-
-class CustomAuthToken(ObtainAuthToken):
-    def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        token = Token.objects.get(key=response.data['token'])
-        user = token.user
-
-        return Response({
-            'token': token.key,
-            'role': user.role
-        })
 
 
 @api_view(['POST'])
@@ -577,6 +618,12 @@ def submit_for_approval(request, exam_id):
     exam.workflow_status = 'SUBMITTED'
     exam.save()
 
+    create_audit_log(
+    request.user,
+    'CREATE_EXAM',
+    f"Submitted exam for approval: {exam.exam_name}"
+)
+
     return Response({'message': 'Submitted for admin approval'})
 
 
@@ -598,6 +645,12 @@ def approve_exam(request, exam_id):
 
     exam.workflow_status = 'APPROVED'
     exam.save()
+
+    create_audit_log(
+    request.user,
+    'APPROVE_EXAM',
+    f"Approved exam: {exam.exam_name}"
+)
 
     return Response({'message': 'Exam approved successfully'})
 
@@ -622,3 +675,166 @@ def reject_exam(request, exam_id):
 
     return Response({'message': 'Exam rejected and returned to staff'})
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_staff(request):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    staff = User.objects.filter(role='STAFF')
+    data = [{
+        'id': s.id,
+        'username': s.username,
+        'email': s.email,
+        'is_active': s.is_active
+    } for s in staff]
+
+    return Response(data)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_students(request):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    students = User.objects.filter(role='STUDENT')
+    data = [{
+        'id': s.id,
+        'username': s.username,
+        'email': s.email,
+        'is_active': s.is_active
+    } for s in students]
+
+    return Response(data)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def enroll_students(request, exam_id):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    try:
+        exam = Exam.objects.get(id=exam_id)
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+    student_ids = request.data.get('student_ids', [])
+
+    students = User.objects.filter(id__in=student_ids, role='STUDENT')
+    exam.enrolled_students.set(students)
+
+    create_audit_log(
+    request.user,
+    'ENROLL_STUDENT',
+    f"Enrolled students to exam: {exam.exam_name}"
+)
+
+    return Response({'message': 'Students enrolled successfully'})
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_dashboard_stats(request):
+
+    user = request.user
+
+    if user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    total_exams = Exam.objects.count()
+    active_exams = Exam.objects.filter(workflow_status='LOCKED').count()
+    total_staff = User.objects.filter(role='STAFF').count()
+    total_students = User.objects.filter(role='STUDENT').count()
+    pending_approvals = Exam.objects.filter(workflow_status='SUBMITTED').count()
+
+    return Response({
+        "total_exams": total_exams,
+        "active_exams": active_exams,
+        "total_staff": total_staff,
+        "total_students": total_students,
+        "pending_approvals": pending_approvals
+    })
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def view_audit_logs(request):
+
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    logs = AuditLog.objects.all().order_by('-timestamp')[:50]
+
+    data = [{
+        "user": log.user.username if log.user else "System",
+        "action": log.action_type,
+        "description": log.description,
+        "timestamp": log.timestamp
+    } for log in logs]
+
+    return Response(data)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_question(request, exam_id):
+
+    user = request.user
+
+    if user.role != 'STAFF':
+        return Response({'error': 'Only staff allowed'}, status=403)
+
+    try:
+        exam = Exam.objects.get(id=exam_id)
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+    # 🔹 STEP 3 — Question limit check
+    question_count = Question.objects.filter(exam=exam).count()
+
+    if question_count >= exam.total_questions_allowed:
+        return Response(
+            {'error': 'Question limit reached for this exam'},
+            status=400
+        )
+
+    Question.objects.create(
+        exam=exam,
+        question_text=request.data.get('question_text'),
+        option_a=request.data.get('option_a'),
+        option_b=request.data.get('option_b'),
+        option_c=request.data.get('option_c'),
+        option_d=request.data.get('option_d'),
+        correct_option=request.data.get('correct_option'),
+        created_by=user
+    )
+    create_audit_log(
+    request.user,
+    'ADD_QUESTION',
+    f"Added question to exam: {exam.exam_name}"
+)
+
+    return Response({'message': 'Question created successfully'})
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def blockchain_status(request):
+
+    user = request.user
+
+    if user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    try:
+        is_connected = web3.is_connected()
+        block_number = web3.eth.block_number
+        admin_account = web3.eth.default_account
+
+        return Response({
+            "connected": is_connected,
+            "current_block": block_number,
+            "admin_account": admin_account
+        })
+
+    except Exception as e:
+        return Response({
+            "connected": False,
+            "error": str(e)
+        }, status=500)
