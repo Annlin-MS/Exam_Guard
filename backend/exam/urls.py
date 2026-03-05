@@ -19,6 +19,16 @@ from .views import (
     view_audit_logs,
     create_question,
     blockchain_status,
+    create_exam,
+    list_questions,
+    list_pending_questions,
+    approve_question,
+    reject_question,
+    staff_exam_results,
+    student_my_result,
+    admin_list_results,
+    publish_results,
+    verify_result_hash,
 
 )
 
@@ -31,13 +41,14 @@ urlpatterns = [
     path('exams/<int:exam_id>/start/', start_exam),
     path('exams/<int:exam_id>/questions/', fetch_question_paper),
     path('exams/<int:exam_id>/submit/', submit_exam),
+    path('exams/<int:exam_id>/my-result/', student_my_result),
 
     # -------------------------
     # STAFF APIs
     # -------------------------
     path('exams/<int:exam_id>/create-paper/', create_question_paper),
     path('exams/<int:exam_id>/lock/', lock_question_paper),
-
+    path('exams/<int:exam_id>/staff-results/', staff_exam_results),
     # -------------------------
     # ADMIN APIs
     # -------------------------
@@ -57,4 +68,14 @@ urlpatterns = [
     path('admin/audit-logs/', view_audit_logs),
     path('exams/<int:exam_id>/add-question/', create_question),
     path('admin/blockchain-status/', blockchain_status),
+    path('exams/create/', create_exam),
+    path('exams/<int:exam_id>/questions/list/', list_questions),
+    path('admin/questions/', list_pending_questions),
+    path('admin/questions/<int:question_id>/approve/', approve_question),
+    path('admin/questions/<int:question_id>/reject/', reject_question),
+    path('admin/results/', admin_list_results),
+    path('admin/results/<int:exam_id>/publish/', publish_results),
+    path('admin/results/<int:exam_id>/verify-hash/', verify_result_hash),
+
+    
 ]

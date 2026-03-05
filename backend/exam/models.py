@@ -102,6 +102,21 @@ class Question(models.Model):
         )
     )
 
+    STATUS_CHOICES = (
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    )
+
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default='PENDING'
+    )
+
+    rejection_reason = models.TextField(blank=True, null=True)
+
+
     created_by = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -211,6 +226,7 @@ class AuditLog(models.Model):
         ('ENROLL_STUDENT', 'Enroll Student'),
         ('SUBMIT_EXAM', 'Submit Exam'),
         ('COMMIT_RESULT', 'Commit Result'),
+        ('ADD_QUESTION', 'Add Question')
     )
 
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
@@ -220,6 +236,19 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.action_type}"
+
+class Result(models.Model):
+    student_exam = models.OneToOneField(
+        StudentExam,
+        on_delete=models.CASCADE
+    )
+    score = models.IntegerField()
+    result_hash = models.CharField(max_length=255)
+    is_published = models.BooleanField(default=False)  # ← ADD THIS
+    evaluated_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Result: {self.student_exam}"      
     
     
     

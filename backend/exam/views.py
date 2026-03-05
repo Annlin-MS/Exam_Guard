@@ -70,6 +70,11 @@ def start_exam(request, exam_id):
     if now > exam_end:
      return Response({'error': 'Exam time is over'}, status=403)
 
+    if not exam.enrolled_students.filter(id=user.id).exists():
+        return Response(
+            {'error': 'You are not enrolled in this exam'},
+            status=403
+        )
 
     student_exam, created = StudentExam.objects.get_or_create(
         student=user,
@@ -104,7 +109,17 @@ def fetch_question_paper(request, exam_id):
         return Response({'error': 'Question paper not uploaded'}, status=404)
 
     # Placeholder (IPFS + decryption will be added later)
-    questions = []
+    questions_qs = exam.questions.all()
+    questions = [{
+    'id': q.id,
+    'question_text': q.question_text,
+    'option_a': q.option_a,
+    'option_b': q.option_b,
+    'option_c': q.option_c,
+    'option_d': q.option_d,
+    # ❌ NO correct_option here!
+} for q in questions_qs]
+
 
     return Response({
         'exam': exam.exam_name,
@@ -178,8 +193,8 @@ def submit_exam(request, exam_id):
     try:
         tx_hash = contract.functions.commitResult(
             exam.id,
-            web3.to_bytes(hexstr=student_hash),
-            web3.to_bytes(hexstr=result_hash)
+            web3.to_bytes(hexstr="0x" + student_hash),
+            web3.to_bytes(hexstr="0x" + result_hash)
         ).transact()
     except Exception as e:
         return Response({'error': str(e)}, status=500)
@@ -343,7 +358,7 @@ def lock_question_paper(request, exam_id):
     try:
         tx_hash = contract.functions.registerExam(
             exam.id,
-            web3.to_bytes(hexstr=question_hash),
+            web3.to_bytes(hexstr="0x" + question_hash),
             start_ts,
             end_ts
         ).transact()
@@ -561,15 +576,19 @@ def list_exams(request):
         exam_list.append({
             "id": exam.id,
             "exam_name": exam.exam_name,
-            "exam_date": exam.exam_date,
-            "start_time": exam.start_time,
-            "end_time": end_datetime.time(),
+            "exam_date": str(exam.exam_date),
+            "start_time": str(exam.start_time),
+            "end_time": str(end_datetime.time()),
             "duration": exam.duration_minutes,
-            "status": status
+            "status": status,
+            "workflow_status": exam.workflow_status,
+            "total_questions_allowed": exam.total_questions_allowed,
+            "assigned_staff": exam.assigned_staff.username if exam.assigned_staff else None,
+            "marks_correct": exam.marks_correct,
+            "marks_wrong": exam.marks_wrong,
         })
 
     return Response(exam_list)
-
 
 
 @api_view(['POST'])
@@ -592,7 +611,7 @@ def login_user(request):
         return Response({"error": "Invalid credentials"}, status=400)
 
     token, created = Token.objects.get_or_create(user=user)
-    return Response({"token": token.key, "role": user.role})
+    return Response({"token": token.key, "role": user.role, "username": user.username})
 
 
 
@@ -838,3 +857,322 @@ def blockchain_status(request):
             "connected": False,
             "error": str(e)
         }, status=500)
+    
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_exam(request):
+    user = request.user
+
+    if user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    exam = Exam.objects.create(
+        exam_name=request.data.get('exam_name'),
+        exam_date=request.data.get('exam_date'),
+        start_time=request.data.get('start_time'),
+        duration_minutes=request.data.get('duration_minutes'),
+        total_questions_allowed=request.data.get('total_questions_allowed', 10),
+        marks_correct=request.data.get('marks_correct', 4),
+        marks_wrong=request.data.get('marks_wrong', -1),
+        assigned_staff_id=request.data.get('assigned_staff'),
+        created_by=user
+    )
+
+    create_audit_log(user, 'CREATE_EXAM', f"Created exam: {exam.exam_name}")
+
+    return Response({'message': 'Exam created successfully', 'exam_id': exam.id})    
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_questions(request, exam_id):
+    user = request.user
+
+    if user.role not in ['STAFF', 'ADMIN']:
+        return Response({'error': 'Not allowed'}, status=403)
+
+    try:
+        exam = Exam.objects.get(id=exam_id)
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+    questions = exam.questions.all()
+    data = [{
+        'id': q.id,
+        'question_text': q.question_text,
+        'option_a': q.option_a,
+        'option_b': q.option_b,
+        'option_c': q.option_c,
+        'option_d': q.option_d,
+        'correct_option': q.correct_option,
+    } for q in questions]
+
+    return Response(data)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_user(request):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+    user = User.objects.create_user(
+        username=request.data.get('username'),
+        email=request.data.get('email'),
+        password=request.data.get('password'),
+        role=request.data.get('role')
+    )
+    return Response({'message': f'{user.role} created successfully'})
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def toggle_user(request, user_id):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+    user = User.objects.get(id=user_id)
+    user.is_active = not user.is_active
+    user.save()
+    return Response({'message': 'Updated', 'is_active': user.is_active})
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def change_password(request):
+    user = request.user
+    current = request.data.get('current_password')
+    new_pass = request.data.get('new_password')
+    if not user.check_password(current):
+        return Response({'error': 'Current password is wrong!'}, status=400)
+    user.set_password(new_pass)
+    user.save()
+    return Response({'message': 'Password changed successfully!'})       
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_pending_questions(request):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    questions = Question.objects.all().select_related('exam', 'created_by')
+    
+    data = [{
+        'id': q.id,
+        'question_text': q.question_text,
+        'option_a': q.option_a,
+        'option_b': q.option_b,
+        'option_c': q.option_c,
+        'option_d': q.option_d,
+        'correct_option': q.correct_option,
+        'exam_id': q.exam.id,
+        'exam_name': q.exam.exam_name,
+        'created_by': q.created_by.username,
+        'status': q.status,
+    } for q in questions]
+
+    return Response(data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def approve_question(request, question_id):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+    try:
+        question = Question.objects.get(id=question_id)
+    except Question.DoesNotExist:
+        return Response({'error': 'Question not found'}, status=404)
+    question.status = 'APPROVED'
+    question.save()
+    return Response({'message': 'Question approved!'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def reject_question(request, question_id):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+    try:
+        question = Question.objects.get(id=question_id)
+    except Question.DoesNotExist:
+        return Response({'error': 'Question not found'}, status=404)
+    question.status = 'REJECTED'
+    question.rejection_reason = request.data.get('reason', '')
+    question.save()
+    return Response({'message': 'Question rejected!'})
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def staff_exam_results(request, exam_id):
+    if request.user.role != 'STAFF':
+        return Response({'error': 'Only staff allowed'}, status=403)
+
+    try:
+        exam = Exam.objects.get(id=exam_id)
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+    student_exams = StudentExam.objects.filter(
+        exam=exam, status='SUBMITTED'
+    ).select_related('student')
+
+    data = []
+    for se in student_exams:
+        try:
+            result = Result.objects.get(student_exam=se)
+            total_marks = exam.total_questions_allowed * exam.marks_correct
+            percentage = round((result.score / total_marks) * 100) if total_marks > 0 else 0
+            data.append({
+                'student_name': se.student.username,
+                'score': result.score,
+                'percentage': percentage,
+                'result_hash': result.result_hash,
+                'submitted_at': se.end_time,
+            })
+        except Result.DoesNotExist:
+            pass
+
+    return Response(data)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def student_my_result(request, exam_id):
+    user = request.user
+    if user.role != 'STUDENT':
+        return Response({'error': 'Only students allowed'}, status=403)
+    try:
+        student_exam = StudentExam.objects.get(exam_id=exam_id, student=user)
+        result = Result.objects.get(student_exam=student_exam)
+        total = student_exam.exam.total_questions_allowed * student_exam.exam.marks_correct
+        percentage = round((result.score / total) * 100) if total > 0 else 0
+        return Response({
+            'exam': student_exam.exam.exam_name,
+            'score': result.score,
+            'percentage': percentage,
+            'result_hash': result.result_hash,
+            'submitted_at': student_exam.end_time,
+        })
+    except Exception:
+        return Response({'error': 'Result not found'}, status=404)  
+
+  # ================================================
+# PUBLISH RESULTS — Admin publishes results
+# ================================================
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def publish_results(request, exam_id):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+    try:
+        exam = Exam.objects.get(id=exam_id)
+        # Get all results for this exam
+        student_exams = StudentExam.objects.filter(exam=exam, status='SUBMITTED')
+        count = 0
+        for se in student_exams:
+            try:
+                result = Result.objects.get(student_exam=se)
+                result.is_published = True
+                result.save()
+                count += 1
+            except Result.DoesNotExist:
+                pass
+        AuditLog.objects.create(
+            user=request.user,
+            action_type='COMMIT_RESULT',
+            description=f"Published {count} results for exam: {exam.exam_name}"
+        )
+        return Response({'message': f'Published {count} results successfully!'})
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+
+# ================================================
+# VERIFY RESULT HASH — Admin verifies result integrity
+# ================================================
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def verify_result_hash(request, exam_id):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+    try:
+        exam = Exam.objects.get(id=exam_id)
+        student_exams = StudentExam.objects.filter(
+            exam=exam, status='SUBMITTED'
+        ).select_related('student')
+
+        results = []
+        for se in student_exams:
+            try:
+                result = Result.objects.get(student_exam=se)
+                # Regenerate hash to verify
+                import hashlib
+                data = f"{se.student.id}{exam.id}{result.score}"
+                regenerated_hash = hashlib.sha256(data.encode()).hexdigest()
+                is_valid = regenerated_hash == result.result_hash
+                results.append({
+                    'student_name': se.student.username,
+                    'score': result.score,
+                    'stored_hash': result.result_hash,
+                    'regenerated_hash': regenerated_hash,
+                    'is_valid': is_valid,
+                    'is_published': result.is_published,
+                })
+            except Result.DoesNotExist:
+                pass
+        return Response({
+            'exam': exam.exam_name,
+            'results': results,
+            'all_valid': all(r['is_valid'] for r in results),
+        })
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+
+# ================================================
+# ADMIN LIST RESULTS — All exams with results
+# ================================================
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_list_results(request):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+    exams = Exam.objects.filter(workflow_status='LOCKED')
+    data = []
+    for exam in exams:
+        student_exams = StudentExam.objects.filter(exam=exam, status='SUBMITTED')
+        total = student_exams.count()
+        published = Result.objects.filter(
+            student_exam__in=student_exams,
+            is_published=True
+        ).count()
+        data.append({
+            'id': exam.id,
+            'exam_name': exam.exam_name,
+            'exam_date': str(exam.exam_date),
+            'total_attempts': total,
+            'published_count': published,
+            'all_published': total > 0 and published == total,
+        })
+    return Response(data)
+
+
+# ================================================
+# STUDENT MY RESULT — Only published results
+# ================================================
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def student_my_result(request, exam_id):
+    user = request.user
+    if user.role != 'STUDENT':
+        return Response({'error': 'Only students allowed'}, status=403)
+    try:
+        student_exam = StudentExam.objects.get(exam_id=exam_id, student=user)
+        result = Result.objects.get(student_exam=student_exam)
+        if not result.is_published:
+            return Response({'error': 'Result not published yet'}, status=404)
+        total = student_exam.exam.total_questions_allowed * student_exam.exam.marks_correct
+        percentage = round((result.score / total) * 100) if total > 0 else 0
+        return Response({
+            'exam': student_exam.exam.exam_name,
+            'score': result.score,
+            'percentage': percentage,
+            'submitted_at': student_exam.end_time,
+            'is_published': result.is_published,
+        })
+    except Exception:
+        return Response({'error': 'Result not found'}, status=404)    

@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { icon: "✅", label: "Approvals", path: "/admin/approvals" },
   { icon: "👨‍🏫", label: "Staff", path: "/admin/staff" },
   { icon: "👨‍🎓", label: "Students", path: "/admin/students" },
+  { icon: "📢", label: "Publish Results", path: "/admin/publish-results" },
   { icon: "⛓️", label: "Blockchain", path: "/admin/blockchain" },
   { icon: "📊", label: "Reports", path: "/admin/reports" },
   { icon: "👤", label: "Profile", path: "/admin/profile" },
@@ -293,7 +294,7 @@ const AdminLayout = () => {
         <div className={`sidebar ${collapsed ? "collapsed" : ""}`}>
           <div className="sidebar-top">
             <div className="logo-icon">⛓️</div>
-            <span className="logo-text">ExamChain</span>
+            <span className="logo-text">ExamGuard</span>
 
             <button
               className="collapse-btn"

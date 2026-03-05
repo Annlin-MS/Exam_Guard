@@ -1,9 +1,8 @@
 import React, { useState } from "react";
 import api from "../../services/api";
 
-const AdminProfile = () => {
-  const username = localStorage.getItem("username") || "Admin";
-  const role = localStorage.getItem("role") || "ADMIN";
+const StudentProfile = () => {
+  const username = localStorage.getItem("username") || "Student";
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -23,7 +22,7 @@ const AdminProfile = () => {
       showToast("Passwords don't match!", "error"); return;
     }
     if (newPassword.length < 6) {
-      showToast("Password must be at least 6 characters!", "error"); return;
+      showToast("Minimum 6 characters!", "error"); return;
     }
     setLoading(true);
     try {
@@ -31,10 +30,10 @@ const AdminProfile = () => {
         current_password: currentPassword,
         new_password: newPassword,
       });
-      showToast("Password changed successfully! ✅");
+      showToast("Password changed! ✅");
       setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
     } catch (err) {
-      showToast(err.response?.data?.error || "Failed to change password", "error");
+      showToast(err.response?.data?.error || "Failed!", "error");
     } finally {
       setLoading(false);
     }
@@ -46,64 +45,60 @@ const AdminProfile = () => {
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap');
         @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
         @keyframes toastIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-        .fade-card { animation: fadeUp 0.3s ease both; }
+        .fade-up { animation: fadeUp 0.3s ease both; }
         .act-btn { transition: all 0.15s; cursor: pointer; }
         .act-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
-        input:focus { outline: none; border-color: #6C63FF !important; box-shadow: 0 0 0 3px rgba(108,99,255,0.1); }
+        input:focus { outline: none; border-color: #FF6B6B !important; box-shadow: 0 0 0 3px rgba(255,107,107,0.1); }
       `}</style>
 
       {toast && (
-        <div style={{ position:"fixed", bottom:24, right:24, padding:"14px 24px", borderRadius:12, background: toast.type==="error" ? "#FF6B6B" : "#00C9A7", color:"#fff", fontSize:14, fontWeight:600, zIndex:9999, boxShadow:"0 8px 24px rgba(0,0,0,0.15)", animation:"toastIn 0.3s ease", fontFamily:"'DM Sans',sans-serif" }}>
+        <div style={{ position:"fixed", bottom:24, right:24, padding:"14px 24px", borderRadius:12, background: toast.type==="error" ? "#FF6B6B" : "#00C9A7", color:"#fff", fontSize:14, fontWeight:600, zIndex:9999, animation:"toastIn 0.3s ease", fontFamily:"'DM Sans',sans-serif" }}>
           {toast.msg}
         </div>
       )}
 
-      <div style={{ fontFamily:"'DM Sans',sans-serif", color:"#1a1a2e", maxWidth:800 }}>
+      <div style={{ fontFamily:"'DM Sans',sans-serif", color:"#2e1a1a", maxWidth:800 }}>
 
-        {/* Header */}
         <div style={{ marginBottom:28 }}>
           <div style={{ fontFamily:"'Syne',sans-serif", fontSize:28, fontWeight:800, marginBottom:4 }}>👤 My Profile</div>
-          <div style={{ fontSize:13, color:"rgba(26,26,46,0.45)" }}>Manage your account details</div>
+          <div style={{ fontSize:13, color:"rgba(46,26,26,0.45)" }}>Manage your account</div>
         </div>
 
         {/* Profile Card */}
-        <div className="fade-card" style={{ background:"#fff", border:"1px solid rgba(26,26,46,0.08)", borderRadius:16, padding:28, marginBottom:20 }}>
+        <div className="fade-up" style={{ background:"#fff", border:"1px solid rgba(255,107,107,0.1)", borderRadius:16, padding:28, marginBottom:20 }}>
           <div style={{ display:"flex", alignItems:"center", gap:20 }}>
-            {/* Avatar */}
-            <div style={{ width:80, height:80, borderRadius:20, background:"linear-gradient(135deg, #6C63FF, #9b5de5)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, flexShrink:0, boxShadow:"0 8px 24px rgba(108,99,255,0.3)" }}>
-              👑
+            <div style={{ width:80, height:80, borderRadius:20, background:"linear-gradient(135deg, #FF6B6B, #ee5a24)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, flexShrink:0, boxShadow:"0 8px 24px rgba(255,107,107,0.3)" }}>
+              👨‍🎓
             </div>
             <div>
               <div style={{ fontFamily:"'Syne',sans-serif", fontSize:22, fontWeight:800, marginBottom:6 }}>{username}</div>
-              <span style={{ fontSize:12, fontWeight:700, padding:"4px 12px", borderRadius:20, background:"rgba(108,99,255,0.1)", color:"#6C63FF", border:"1px solid rgba(108,99,255,0.2)", letterSpacing:"0.06em" }}>
-                ● {role}
+              <span style={{ fontSize:12, fontWeight:700, padding:"4px 12px", borderRadius:20, background:"rgba(255,107,107,0.1)", color:"#FF6B6B", border:"1px solid rgba(255,107,107,0.2)", letterSpacing:"0.06em" }}>
+                ● STUDENT
               </span>
             </div>
           </div>
 
-          <div style={{ height:1, background:"rgba(26,26,46,0.06)", margin:"24px 0" }} />
+          <div style={{ height:1, background:"rgba(255,107,107,0.08)", margin:"24px 0" }} />
 
-          {/* Info Grid */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
             {[
-              { label:"Role", value:"Administrator", icon:"👑" },
-              { label:"Portal", value:"Admin Portal", icon:"🖥️" },
+              { label:"Role", value:"Student", icon:"👨‍🎓" },
+              { label:"Portal", value:"Student Portal", icon:"🖥️" },
               { label:"Status", value:"Active", icon:"🟢" },
             ].map((item, i) => (
-              <div key={i} style={{ padding:"14px 16px", background:"rgba(26,26,46,0.03)", border:"1px solid rgba(26,26,46,0.07)", borderRadius:10 }}>
+              <div key={i} style={{ padding:"14px 16px", background:"rgba(255,107,107,0.03)", border:"1px solid rgba(255,107,107,0.08)", borderRadius:10 }}>
                 <div style={{ fontSize:20, marginBottom:6 }}>{item.icon}</div>
-                <div style={{ fontSize:11, color:"rgba(26,26,46,0.4)", fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:4 }}>{item.label}</div>
+                <div style={{ fontSize:11, color:"rgba(46,26,26,0.4)", fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:4 }}>{item.label}</div>
                 <div style={{ fontSize:14, fontWeight:600 }}>{item.value}</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Change Password Card */}
-        <div className="fade-card" style={{ background:"#fff", border:"1px solid rgba(26,26,46,0.08)", borderRadius:16, padding:28, animationDelay:"0.1s" }}>
+        {/* Change Password */}
+        <div className="fade-up" style={{ background:"#fff", border:"1px solid rgba(255,107,107,0.1)", borderRadius:16, padding:28, animationDelay:"0.1s" }}>
           <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700, marginBottom:6 }}>🔐 Change Password</div>
-          <div style={{ fontSize:13, color:"rgba(26,26,46,0.5)", marginBottom:24 }}>Update your account password</div>
-
+          <div style={{ fontSize:13, color:"rgba(46,26,26,0.5)", marginBottom:24 }}>Update your account password</div>
           <div style={{ display:"flex", flexDirection:"column", gap:16, maxWidth:400 }}>
             {[
               ["Current Password", currentPassword, setCurrentPassword],
@@ -111,19 +106,13 @@ const AdminProfile = () => {
               ["Confirm New Password", confirmPassword, setConfirmPassword],
             ].map(([label, value, setter], i) => (
               <div key={i} style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                <label style={{ fontSize:12, fontWeight:700, color:"rgba(26,26,46,0.6)", letterSpacing:"0.05em" }}>{label}</label>
-                <input
-                  type="password"
-                  placeholder="••••••••"
-                  value={value}
-                  onChange={e => setter(e.target.value)}
-                  style={{ padding:"11px 14px", border:"1px solid rgba(26,26,46,0.15)", borderRadius:8, fontSize:14, fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s" }}
-                />
+                <label style={{ fontSize:12, fontWeight:700, color:"rgba(46,26,26,0.5)", letterSpacing:"0.05em" }}>{label}</label>
+                <input type="password" placeholder="••••••••" value={value} onChange={e => setter(e.target.value)}
+                  style={{ padding:"11px 14px", border:"1px solid rgba(46,26,26,0.15)", borderRadius:8, fontSize:14, fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s" }} />
               </div>
             ))}
-
             <button className="act-btn" onClick={handleChangePassword} disabled={loading}
-              style={{ padding:"12px 24px", background:"#6C63FF", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:700, fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 12px rgba(108,99,255,0.3)", opacity: loading ? 0.7 : 1, marginTop:4 }}>
+              style={{ padding:"12px 24px", background:"#FF6B6B", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:700, fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 12px rgba(255,107,107,0.3)", opacity: loading ? 0.7 : 1 }}>
               {loading ? "Updating..." : "🔐 Update Password"}
             </button>
           </div>
@@ -133,4 +122,4 @@ const AdminProfile = () => {
   );
 };
 
-export default AdminProfile;
+export default StudentProfile;

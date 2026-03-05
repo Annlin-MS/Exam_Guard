@@ -1,297 +1,148 @@
-import React, { useEffect, useState } from "react";
-import api from "../../services/api";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import api from "../../services/api";
 
 const StudentDashboard = () => {
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchExams();
-  }, []);
+  useEffect(() => { fetchExams(); }, []);
 
   const fetchExams = async () => {
     try {
-      const response = await api.get("/api/exams/");
-      setExams(response.data);
-    } catch (error) {
-      console.error("Error fetching exams", error);
+      const res = await api.get("/api/exams/");
+      setExams(res.data);
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAttempt = (examId) => {
-    navigate(`/student/exam/${examId}`);
-  };
+  const upcoming = exams.filter(e => e.status === "UPCOMING");
+  const ongoing = exams.filter(e => e.status === "ONGOING");
+  const submitted = exams.filter(e => e.status === "SUBMITTED");
 
-  // Helper to get status badge style
-  const getStatusBadge = (status) => {
-    const badges = {
-      UPCOMING: { text: "🟡 Upcoming", color: "#b76e00", bg: "#fff4e5" },
-      ONGOING: { text: "🟢 Ongoing", color: "#1e7e34", bg: "#e6f7e6" },
-      COMPLETED: { text: "⚫ Completed", color: "#5e5e5e", bg: "#f0f0f0" },
-      SUBMITTED: { text: "✅ Submitted", color: "#2b5e8c", bg: "#e3f2fd" },
-      MISSED: { text: "⏰ Missed", color: "#a94442", bg: "#fce4e4" },
-    };
-    return badges[status] || { text: status, color: "#333", bg: "#eee" };
-  };
-
-  if (loading) {
-    return (
-      <div style={styles.loadingContainer}>
-        <div style={styles.spinner}></div>
-        <p>Loading your exams...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div style={styles.container}>
-      {/* Header with stats */}
-      <div style={styles.header}>
-        <h1 style={styles.title}>🎓 Student Dashboard</h1>
-        <div style={styles.stats}>
-          <div style={styles.statCard}>
-            <span style={styles.statValue}>{exams.length}</span>
-            <span style={styles.statLabel}>Total Exams</span>
-          </div>
-          <div style={styles.statCard}>
-            <span style={styles.statValue}>
-              {exams.filter(e => e.status === "ONGOING").length}
-            </span>
-            <span style={styles.statLabel}>Ongoing</span>
-          </div>
-        </div>
-      </div>
-
-      {exams.length === 0 ? (
-        <div style={styles.emptyState}>
-          <p>No exams available at the moment. Check back later!</p>
-        </div>
-      ) : (
-        <div style={styles.grid}>
-          {exams.map((exam) => {
-            const badge = getStatusBadge(exam.status);
-            return (
-              <div key={exam.id} style={styles.card}>
-                <h3 style={styles.examName}>{exam.exam_name}</h3>
-                <div style={styles.details}>
-                  <p><strong>📅 Date:</strong> {exam.exam_date}</p>
-                  <p><strong>⏱️ Duration:</strong> {exam.duration_minutes} mins</p>
-                </div>
-                <div style={styles.cardFooter}>
-                  <span
-                    style={{
-                      ...styles.badge,
-                      backgroundColor: badge.bg,
-                      color: badge.color,
-                    }}
-                  >
-                    {badge.text}
-                  </span>
-
-                  {/* Action based on status */}
-                  {exam.status === "ONGOING" && (
-                    <button
-                      style={styles.primaryButton}
-                      onClick={() => handleAttempt(exam.id)}
-                      onMouseEnter={(e) => (e.target.style.backgroundColor = "#0f2b4f")}
-                      onMouseLeave={(e) => (e.target.style.backgroundColor = "#1e3c72")}
-                    >
-                      ▶ Start Exam
-                    </button>
-                  )}
-
-                  {exam.status === "SUBMITTED" && (
-                    <button style={styles.secondaryButton} disabled>
-                      Already Submitted
-                    </button>
-                  )}
-
-                  {exam.status === "MISSED" && (
-                    <button style={styles.disabledButton} disabled>
-                      Missed
-                    </button>
-                  )}
-
-                  {(exam.status === "UPCOMING" || exam.status === "COMPLETED") && (
-                    <button style={styles.disabledButton} disabled>
-                      {exam.status === "UPCOMING" ? "Not Started" : "Completed"}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+  if (loading) return (
+    <div style={{ padding:40, textAlign:"center", color:"rgba(46,26,26,0.5)", fontFamily:"'DM Sans',sans-serif" }}>
+      Loading...
     </div>
   );
-};
 
-// ====================== STYLES ======================
-const styles = {
-  container: {
-    maxWidth: "1200px",
-    margin: "0 auto",
-    padding: "40px 20px",
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-    backgroundColor: "#f8fafc",
-    minHeight: "100vh",
-  },
-  loadingContainer: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "100vh",
-    fontSize: "1.2rem",
-    color: "#1e3c72",
-  },
-  spinner: {
-    border: "4px solid #f3f3f3",
-    borderTop: "4px solid #1e3c72",
-    borderRadius: "50%",
-    width: "50px",
-    height: "50px",
-    animation: "spin 1s linear infinite",
-    marginBottom: "20px",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "40px",
-    flexWrap: "wrap",
-    gap: "20px",
-  },
-  title: {
-    fontSize: "2.5rem",
-    fontWeight: "700",
-    color: "#1e293b",
-    margin: 0,
-  },
-  stats: {
-    display: "flex",
-    gap: "15px",
-  },
-  statCard: {
-    backgroundColor: "#ffffff",
-    padding: "12px 24px",
-    borderRadius: "12px",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
-    textAlign: "center",
-    minWidth: "100px",
-  },
-  statValue: {
-    display: "block",
-    fontSize: "1.8rem",
-    fontWeight: "700",
-    color: "#1e3c72",
-    lineHeight: 1.2,
-  },
-  statLabel: {
-    fontSize: "0.9rem",
-    color: "#64748b",
-  },
-  emptyState: {
-    textAlign: "center",
-    padding: "60px",
-    backgroundColor: "#ffffff",
-    borderRadius: "16px",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
-    color: "#64748b",
-    fontSize: "1.2rem",
-  },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-    gap: "24px",
-  },
-  card: {
-    backgroundColor: "#ffffff",
-    borderRadius: "16px",
-    padding: "24px",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
-    transition: "transform 0.2s, box-shadow 0.2s",
-    display: "flex",
-    flexDirection: "column",
-    border: "1px solid #e9eef2",
-  },
-  examName: {
-    fontSize: "1.3rem",
-    fontWeight: "600",
-    color: "#1e3c72",
-    margin: "0 0 16px 0",
-    borderBottom: "2px solid #e2e8f0",
-    paddingBottom: "12px",
-  },
-  details: {
-    marginBottom: "20px",
-    flex: 1,
-  },
-  cardFooter: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: "auto",
-    borderTop: "1px solid #e2e8f0",
-    paddingTop: "16px",
-    flexWrap: "wrap",
-    gap: "10px",
-  },
-  badge: {
-    display: "inline-block",
-    padding: "6px 12px",
-    borderRadius: "20px",
-    fontSize: "0.85rem",
-    fontWeight: "600",
-    letterSpacing: "0.02em",
-  },
-  primaryButton: {
-    backgroundColor: "#1e3c72",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: "8px",
-    padding: "8px 16px",
-    fontSize: "0.9rem",
-    fontWeight: "600",
-    cursor: "pointer",
-    transition: "background-color 0.2s",
-    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-  },
-  secondaryButton: {
-    backgroundColor: "#6c757d",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: "8px",
-    padding: "8px 16px",
-    fontSize: "0.9rem",
-    fontWeight: "600",
-    cursor: "not-allowed",
-    opacity: 0.7,
-  },
-  disabledButton: {
-    backgroundColor: "#adb5bd",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: "8px",
-    padding: "8px 16px",
-    fontSize: "0.9rem",
-    fontWeight: "600",
-    cursor: "not-allowed",
-  },
-};
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap');
+        @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+        .fade-up { animation: fadeUp 0.3s ease both; }
+        .act-btn { transition: all 0.15s; cursor: pointer; }
+        .act-btn:hover { filter: brightness(1.05); transform: translateY(-2px); }
+        .exam-card { transition: all 0.2s; }
+        .exam-card:hover { transform: translateY(-3px); box-shadow: 0 8px 32px rgba(255,107,107,0.1) !important; }
+      `}</style>
 
-// Inject keyframe for spinner
-const styleSheet = document.styleSheets[0];
-styleSheet.insertRule(`
-  @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-  }
-`, styleSheet.cssRules.length);
+      <div style={{ fontFamily:"'DM Sans',sans-serif", color:"#2e1a1a", maxWidth:1100 }}>
+
+        {/* Welcome Banner */}
+        <div className="fade-up" style={{ background:"linear-gradient(135deg, #FF6B6B, #ee5a24)", borderRadius:16, padding:"28px 32px", marginBottom:24, color:"#fff", position:"relative", overflow:"hidden" }}>
+          <div style={{ position:"absolute", right:32, top:"50%", transform:"translateY(-50%)", fontSize:80, opacity:0.1 }}>👨‍🎓</div>
+          <div style={{ fontSize:13, fontWeight:600, opacity:0.8, marginBottom:6, letterSpacing:"0.06em" }}>WELCOME BACK</div>
+          <div style={{ fontFamily:"'Syne',sans-serif", fontSize:26, fontWeight:800, marginBottom:6 }}>
+            {localStorage.getItem("username") || "Student"} 👋
+          </div>
+          <div style={{ fontSize:14, opacity:0.85 }}>
+            {ongoing.length > 0
+              ? `🔴 ${ongoing.length} exam is LIVE right now!`
+              : upcoming.length > 0
+              ? `📅 You have ${upcoming.length} upcoming exam(s)`
+              : "No upcoming exams. Stay prepared! 💪"}
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:24 }}>
+          {[
+            { label:"Total Exams", value:exams.length, icon:"📋", color:"#FF6B6B" },
+            { label:"Upcoming", value:upcoming.length, icon:"📅", color:"#FFD166" },
+            { label:"Live Now", value:ongoing.length, icon:"🔴", color:"#FF6B6B" },
+            { label:"Completed", value:submitted.length, icon:"✅", color:"#00C9A7" },
+          ].map((s,i) => (
+            <div key={i} className="fade-up" style={{ background:"#fff", border:`1px solid ${s.color}22`, borderRadius:14, padding:"20px", animationDelay:`${i*0.07}s` }}>
+              <div style={{ fontSize:24, marginBottom:10 }}>{s.icon}</div>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontSize:30, fontWeight:800, color:s.color }}>{s.value}</div>
+              <div style={{ fontSize:12, color:"rgba(46,26,26,0.45)", marginTop:4 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Live Exam Alert */}
+        {ongoing.length > 0 && (
+          <div className="fade-up" style={{ background:"rgba(255,107,107,0.08)", border:"2px solid rgba(255,107,107,0.3)", borderRadius:16, padding:20, marginBottom:24, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+              <div style={{ fontSize:32, animation:"pulse 1.5s infinite" }}>🔴</div>
+              <div>
+                <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:800, color:"#FF6B6B", marginBottom:4 }}>
+                  LIVE: {ongoing[0].exam_name}
+                </div>
+                <div style={{ fontSize:13, color:"rgba(46,26,26,0.6)" }}>
+                  Exam is ongoing! Click to start now.
+                </div>
+              </div>
+            </div>
+            <button className="act-btn" onClick={() => navigate("/student/exams")}
+              style={{ padding:"12px 28px", background:"#FF6B6B", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:700, fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 16px rgba(255,107,107,0.4)" }}>
+              Start Now →
+            </button>
+          </div>
+        )}
+
+        {/* Exam List */}
+        <div style={{ background:"#fff", border:"1px solid rgba(255,107,107,0.1)", borderRadius:16, padding:24 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
+            <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700 }}>📋 My Exams</div>
+            <button className="act-btn" onClick={() => navigate("/student/exams")}
+              style={{ padding:"7px 16px", borderRadius:8, border:"1px solid rgba(255,107,107,0.3)", background:"rgba(255,107,107,0.06)", color:"#FF6B6B", fontSize:12, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>
+              View All →
+            </button>
+          </div>
+
+          {exams.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"40px 20px", color:"rgba(46,26,26,0.4)" }}>
+              <div style={{ fontSize:40, marginBottom:10 }}>📭</div>
+              <div>No exams enrolled yet</div>
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {exams.slice(0,5).map((exam,i) => {
+                const statusColors = { UPCOMING:"#FFD166", ONGOING:"#FF6B6B", SUBMITTED:"#00C9A7", MISSED:"#94a3b8" };
+                const color = statusColors[exam.status] || "#94a3b8";
+                return (
+                  <div key={exam.id} className="fade-up" style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", background:"rgba(255,107,107,0.03)", border:"1px solid rgba(255,107,107,0.08)", borderRadius:12, animationDelay:`${i*0.05}s` }}>
+                    <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,107,107,0.08)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>📝</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:14, fontWeight:600, marginBottom:2 }}>{exam.exam_name}</div>
+                      <div style={{ fontSize:12, color:"rgba(46,26,26,0.45)" }}>📅 {exam.exam_date} · ⏱️ {exam.duration} min</div>
+                    </div>
+                    <span style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:20, color, background:`${color}15`, border:`1px solid ${color}33` }}>
+                      {exam.status}
+                    </span>
+                    {exam.status === "ONGOING" && (
+                      <button className="act-btn" onClick={() => navigate("/student/exams")}
+                        style={{ padding:"7px 14px", borderRadius:8, border:"none", background:"#FF6B6B", color:"#fff", fontSize:12, fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>
+                        Start →
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+};
 
 export default StudentDashboard;
