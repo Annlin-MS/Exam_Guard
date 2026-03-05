@@ -7,6 +7,9 @@ const AdminBlockchain = () => {
   const [verifyExamId, setVerifyExamId] = useState("");
   const [verifyResult, setVerifyResult] = useState(null);
   const [verifying, setVerifying] = useState(false);
+  const [resultExamId, setResultExamId] = useState("");
+  const [resultVerify, setResultVerify] = useState(null);
+  const [resultVerifying, setResultVerifying] = useState(false);
 
   useEffect(() => { fetchStatus(); }, []);
 
@@ -32,6 +35,21 @@ const AdminBlockchain = () => {
       setVerifyResult({ status: "ERROR", message: err.response?.data?.error || "Verification failed" });
     } finally {
       setVerifying(false);
+    }
+  };
+
+  // ← NEW handler for result verification
+  const handleVerifyResult = async () => {
+    if (!resultExamId) return;
+    setResultVerifying(true);
+    setResultVerify(null);
+    try {
+      const res = await api.get(`/api/admin/results/${resultExamId}/verify-hash/`);
+      setResultVerify(res.data);
+    } catch (err) {
+      setResultVerify({ error: err.response?.data?.error || "Verification failed" });
+    } finally {
+      setResultVerifying(false);
     }
   };
 
@@ -144,15 +162,98 @@ const AdminBlockchain = () => {
           )}
         </div>
 
-        {/* How it Works */}
+        {/* ── NEW: Verify Result Integrity ── */}
+        <div className="fade-card" style={{ background:"#fff", border:"1px solid rgba(26,26,46,0.08)", borderRadius:16, padding:24, marginBottom:20, animationDelay:"0.15s" }}>
+          <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700, marginBottom:6 }}>📊 Verify Result Integrity</div>
+          <div style={{ fontSize:13, color:"rgba(26,26,46,0.5)", marginBottom:20 }}>
+            Enter an Exam ID to verify all student result hashes on blockchain match the database
+          </div>
+
+          <div style={{ display:"flex", gap:12, marginBottom:20 }}>
+            <input
+              type="number"
+              placeholder="Enter Exam ID (e.g. 1)"
+              value={resultExamId}
+              onChange={e => { setResultExamId(e.target.value); setResultVerify(null); }}
+              style={{ flex:1, padding:"11px 16px", border:"1px solid rgba(26,26,46,0.15)", borderRadius:10, fontSize:14, fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s" }}
+            />
+            <button className="act-btn" onClick={handleVerifyResult} disabled={resultVerifying || !resultExamId}
+              style={{ padding:"11px 28px", background:"#6C63FF", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:700, fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 12px rgba(108,99,255,0.3)", opacity: (!resultExamId || resultVerifying) ? 0.6 : 1 }}>
+              {resultVerifying ? "Verifying..." : "🔍 Verify Results"}
+            </button>
+          </div>
+
+          {/* Result Verify Output */}
+          {resultVerify && (
+            <div style={{ animation:"fadeUp 0.3s ease" }}>
+              {resultVerify.error ? (
+                <div style={{ padding:20, borderRadius:12, background:"rgba(255,107,107,0.06)", border:"1px solid rgba(255,107,107,0.25)" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <span style={{ fontSize:24 }}>❌</span>
+                    <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700, color:"#FF6B6B" }}>
+                      {resultVerify.error}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ padding:20, borderRadius:12, background: resultVerify.all_valid ? "rgba(0,201,167,0.06)" : "rgba(255,107,107,0.06)", border:`1px solid ${resultVerify.all_valid ? "rgba(0,201,167,0.25)" : "rgba(255,107,107,0.25)"}` }}>
+                  {/* Summary */}
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+                    <span style={{ fontSize:24 }}>{resultVerify.all_valid ? "✅" : "⚠️"}</span>
+                    <div>
+                      <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700, color: resultVerify.all_valid ? "#00C9A7" : "#FF6B6B" }}>
+                        {resultVerify.all_valid ? "All Results NOT Tampered!" : "TAMPERED — Hash Mismatch Detected!"}
+                      </div>
+                      <div style={{ fontSize:13, color:"rgba(26,26,46,0.5)" }}>
+                        {resultVerify.results?.length} student result(s) verified · Exam: {resultVerify.exam}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Per Student Results */}
+                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                    {resultVerify.results?.map((r, i) => (
+                      <div key={i} style={{ padding:"14px 16px", background: r.is_valid ? "rgba(0,201,167,0.04)" : "rgba(255,107,107,0.04)", border:`1px solid ${r.is_valid ? "rgba(0,201,167,0.15)" : "rgba(255,107,107,0.2)"}`, borderRadius:10 }}>
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                            <div style={{ width:32, height:32, borderRadius:8, background:"rgba(108,99,255,0.08)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>👨‍🎓</div>
+                            <div>
+                              <div style={{ fontSize:13, fontWeight:600 }}>{r.student_name}</div>
+                              <div style={{ fontSize:11, color:"rgba(26,26,46,0.45)" }}>Score: {r.score}</div>
+                            </div>
+                          </div>
+                          <span style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:20, background: r.is_valid ? "rgba(0,201,167,0.1)" : "rgba(255,107,107,0.1)", color: r.is_valid ? "#00C9A7" : "#FF6B6B" }}>
+                            {r.is_valid ? "✅ Valid" : "❌ Tampered!"}
+                          </span>
+                        </div>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                          <div style={{ padding:"8px 10px", background:"rgba(26,26,46,0.03)", borderRadius:8 }}>
+                            <div style={{ fontSize:9, fontWeight:700, color:"rgba(26,26,46,0.4)", letterSpacing:"0.06em", marginBottom:4 }}>STORED HASH (DB)</div>
+                            <div className="hash-text" style={{ color:"#6C63FF", fontSize:10 }}>{r.stored_hash?.substring(0,40)}...</div>
+                          </div>
+                          <div style={{ padding:"8px 10px", background:"rgba(26,26,46,0.03)", borderRadius:8 }}>
+                            <div style={{ fontSize:9, fontWeight:700, color:"rgba(26,26,46,0.4)", letterSpacing:"0.06em", marginBottom:4 }}>REGENERATED HASH</div>
+                            <div className="hash-text" style={{ color: r.is_valid ? "#00C9A7" : "#FF6B6B", fontSize:10 }}>{r.regenerated_hash?.substring(0,40)}...</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* How it Works — unchanged */}
         <div className="fade-card" style={{ background:"#fff", border:"1px solid rgba(26,26,46,0.08)", borderRadius:16, padding:24, animationDelay:"0.2s" }}>
           <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700, marginBottom:20 }}>⚙️ How Blockchain Security Works</div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16 }}>
             {[
-              { step:"01", icon:"📝", title:"Questions Created", desc:"Staff creates MCQ questions for the exam" },
-              { step:"02", icon:"🔐", title:"Hash Generated", desc:"SHA-256 hash of all questions generated" },
-              { step:"03", icon:"⛓️", title:"Stored on Chain", desc:"Hash stored permanently on Ganache blockchain" },
-              { step:"04", icon:"✅", title:"Verified Anytime", desc:"Anyone can verify integrity by comparing hashes" },
+              { step:"01", icon:"📝", title:"Questions Created",  desc:"Staff creates MCQ questions for the exam" },
+              { step:"02", icon:"🔐", title:"Hash Generated",     desc:"SHA-256 hash of all questions generated" },
+              { step:"03", icon:"⛓️", title:"Stored on Chain",   desc:"Hash stored permanently on Ganache blockchain" },
+              { step:"04", icon:"✅", title:"Verified Anytime",   desc:"Anyone can verify integrity by comparing hashes" },
             ].map((item, i) => (
               <div key={i} style={{ textAlign:"center", padding:16, background:"rgba(108,99,255,0.03)", borderRadius:12, border:"1px solid rgba(108,99,255,0.08)" }}>
                 <div style={{ fontSize:11, fontWeight:700, color:"rgba(108,99,255,0.5)", letterSpacing:"0.1em", marginBottom:8 }}>STEP {item.step}</div>
@@ -163,6 +264,7 @@ const AdminBlockchain = () => {
             ))}
           </div>
         </div>
+
       </div>
     </>
   );

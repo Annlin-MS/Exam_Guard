@@ -29,10 +29,13 @@ from .views import (
     admin_list_results,
     publish_results,
     verify_result_hash,
+    enroll_students,
+    get_notifications,
 
 )
 
 urlpatterns = [
+    path('notifications/', get_notifications),
 
     # -------------------------
     # STUDENT APIs
@@ -76,6 +79,7 @@ urlpatterns = [
     path('admin/results/', admin_list_results),
     path('admin/results/<int:exam_id>/publish/', publish_results),
     path('admin/results/<int:exam_id>/verify-hash/', verify_result_hash),
-
+    path('exams/<int:exam_id>/enroll/', enroll_students),
+    
     
 ]

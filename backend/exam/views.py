@@ -1176,3 +1176,215 @@ def student_my_result(request, exam_id):
         })
     except Exception:
         return Response({'error': 'Result not found'}, status=404)    
+
+# ================================================
+# CREATE USER — updated to create StudentProfile
+# ================================================
+from exam.models import User, Exam, Question, QuestionPaper, StudentExam, Result, AuditLog, StudentProfile
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_user(request):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    username    = request.data.get('username')
+    email       = request.data.get('email', '')
+    password    = request.data.get('password') or username
+    role        = request.data.get('role')
+    department  = request.data.get('department', 'CS')
+    semester    = request.data.get('semester', '1')
+    roll_number = request.data.get('roll_number', '')
+
+    if User.objects.filter(username=username).exists():
+        return Response({'error': 'Username already exists!'}, status=400)
+
+    user = User.objects.create_user(
+        username=username,
+        email=email,
+        password=password,
+        role=role
+    )
+
+    # Create StudentProfile if role is STUDENT
+    if role == 'STUDENT':
+        StudentProfile.objects.create(
+            user=user,
+            department=department,
+            semester=semester,
+            roll_number=roll_number or username
+        )
+
+    AuditLog.objects.create(
+        user=request.user,
+        action_type='CREATE_EXAM',
+        description=f"Created {role} account: {username}"
+    )
+
+    return Response({
+        'message': f'{role} created successfully!',
+        'username': username,
+        'password': password,
+        'role': role,
+        'department': department if role == 'STUDENT' else None,
+        'semester': semester if role == 'STUDENT' else None,
+    })
+
+
+# ================================================
+# LIST STUDENTS — with profile info
+# ================================================
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_students(request):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    students = User.objects.filter(role='STUDENT')
+    data = []
+    for s in students:
+        profile = getattr(s, 'profile', None)
+        data.append({
+            'id': s.id,
+            'username': s.username,
+            'email': s.email,
+            'is_active': s.is_active,
+            'department': profile.department if profile else '—',
+            'semester': profile.semester if profile else '—',
+            'roll_number': profile.roll_number if profile else '—',
+        })
+    return Response(data)
+
+
+# ================================================
+# ENROLL STUDENTS — by department/semester
+# ================================================
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def enroll_students(request, exam_id):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+
+    try:
+        exam = Exam.objects.get(id=exam_id)
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+    if request.method == 'GET':
+        # Return all students with enrollment status
+        students = User.objects.filter(role='STUDENT', is_active=True)
+        enrolled_ids = exam.enrolled_students.values_list('id', flat=True)
+        data = []
+        for s in students:
+            profile = getattr(s, 'profile', None)
+            data.append({
+                'id': s.id,
+                'username': s.username,
+                'email': s.email,
+                'department': profile.department if profile else '—',
+                'semester': profile.semester if profile else '—',
+                'roll_number': profile.roll_number if profile else '—',
+                'enrolled': s.id in enrolled_ids,
+            })
+        return Response(data)
+
+    if request.method == 'POST':
+        student_ids = request.data.get('student_ids', [])
+        exam.enrolled_students.set(student_ids)
+        AuditLog.objects.create(
+            user=request.user,
+            action_type='ENROLL_STUDENT',
+            description=f"Enrolled {len(student_ids)} students in {exam.exam_name}"
+        )
+        return Response({'message': f'{len(student_ids)} students enrolled!'})
+
+      # ================================================
+# NOTIFICATIONS — for staff
+# ================================================
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_notifications(request):
+    user = request.user
+    notifications = []
+
+    if user.role == 'STAFF':
+        # Get all exams assigned to this staff
+        exams = Exam.objects.filter(assigned_staff=user)
+        for exam in exams:
+            # Exam level notifications
+            if exam.workflow_status == 'APPROVED':
+                notifications.append({
+                    'id': f'exam_approved_{exam.id}',
+                    'type': 'APPROVED',
+                    'title': 'Exam Approved!',
+                    'message': f'"{exam.exam_name}" has been approved. You can now lock the paper.',
+                    'exam_id': exam.id,
+                    'exam_name': exam.exam_name,
+                    'action': 'LOCK',
+                })
+            elif exam.workflow_status == 'REJECTED':
+                notifications.append({
+                    'id': f'exam_rejected_{exam.id}',
+                    'type': 'REJECTED',
+                    'title': 'Exam Rejected',
+                    'message': f'"{exam.exam_name}" was rejected by admin. Fix the questions and resubmit.',
+                    'exam_id': exam.id,
+                    'exam_name': exam.exam_name,
+                    'action': 'FIX',
+                })
+
+            # Question level notifications
+            rejected_questions = Question.objects.filter(
+                exam=exam, status='REJECTED'
+            )
+            approved_questions = Question.objects.filter(
+                exam=exam, status='APPROVED'
+            )
+
+            if rejected_questions.exists():
+                notifications.append({
+                    'id': f'qn_rejected_{exam.id}',
+                    'type': 'QN_REJECTED',
+                    'title': f'{rejected_questions.count()} Question(s) Rejected',
+                    'message': f'Admin rejected {rejected_questions.count()} question(s) in "{exam.exam_name}". Check feedback and fix them.',
+                    'exam_id': exam.id,
+                    'exam_name': exam.exam_name,
+                    'count': rejected_questions.count(),
+                    'action': 'FIX',
+                })
+
+            if approved_questions.exists():
+                notifications.append({
+                    'id': f'qn_approved_{exam.id}',
+                    'type': 'QN_APPROVED',
+                    'title': f'{approved_questions.count()} Question(s) Approved',
+                    'message': f'Admin approved {approved_questions.count()} question(s) in "{exam.exam_name}".',
+                    'exam_id': exam.id,
+                    'exam_name': exam.exam_name,
+                    'count': approved_questions.count(),
+                    'action': None,
+                })
+
+    elif user.role == 'STUDENT':
+        # Student notifications — published results
+        student_exams = StudentExam.objects.filter(
+            student=user, status='SUBMITTED'
+        )
+        for se in student_exams:
+            try:
+                result = Result.objects.get(
+                    student_exam=se, is_published=True
+                )
+                notifications.append({
+                    'id': f'result_{se.exam.id}',
+                    'type': 'RESULT_PUBLISHED',
+                    'title': 'Result Published!',
+                    'message': f'Your result for "{se.exam.exam_name}" is now available.',
+                    'exam_id': se.exam.id,
+                    'exam_name': se.exam.exam_name,
+                    'action': 'VIEW_RESULT',
+                })
+            except Result.DoesNotExist:
+                pass
+
+    return Response(notifications)  
