@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth import authenticate
-
+from django.utils import timezone
 
 from cryptography.fernet import Fernet
 
@@ -368,6 +368,7 @@ def lock_question_paper(request, exam_id):
     # Save blockchain tx
     qp.blockchain_tx_hash = tx_hash.hex()
     qp.is_locked = True
+    qp.locked_at = timezone.now()
     qp.save()
 
     # 🔴 NEW: Update exam workflow status
@@ -379,6 +380,7 @@ def lock_question_paper(request, exam_id):
     'LOCK_PAPER',
     f"Locked question paper for {exam.exam_name}"
 )
+
 
     return Response({
         'message': 'Question paper locked successfully',
@@ -539,7 +541,7 @@ def list_exams(request):
 
     # 🔥 Role-based exam visibility
     if user.role == 'STUDENT':
-        exams = user.enrolled_exams.all()
+        exams = user.enrolled_exams.filter(workflow_status='LOCKED')
     elif user.role == 'STAFF':
         exams = Exam.objects.filter(assigned_staff=user)
     else:  # ADMIN
@@ -586,7 +588,10 @@ def list_exams(request):
             "assigned_staff": exam.assigned_staff.username if exam.assigned_staff else None,
             "marks_correct": exam.marks_correct,
             "marks_wrong": exam.marks_wrong,
-        })
+            "department": exam.department,
+            "semester": exam.semester,
+            "enrolled_students_count": exam.enrolled_students.count(),
+        }),
 
     return Response(exam_list)
 
@@ -613,37 +618,56 @@ def login_user(request):
     token, created = Token.objects.get_or_create(user=user)
     return Response({"token": token.key, "role": user.role, "username": user.username})
 
-
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def submit_for_approval(request, exam_id):
-    user = request.user
-
-    if user.role != 'STAFF':
+    if request.user.role != 'STAFF':
         return Response({'error': 'Only staff allowed'}, status=403)
-
     try:
-        exam = Exam.objects.get(id=exam_id)
+        exam = Exam.objects.get(
+            id=exam_id,
+            assigned_staff=request.user
+        )
+
+        # Allow DRAFT and REJECTED to submit/resubmit
+        if exam.workflow_status not in ['DRAFT', 'REJECTED']:
+            return Response(
+                {'error': f'Cannot submit — status is {exam.workflow_status}'},
+                status=400
+            )
+
+        # Check no rejected questions remain
+        rejected_count = exam.questions.filter(status='REJECTED').count()
+        if rejected_count > 0:
+            return Response(
+                {'error': f'Please delete {rejected_count} rejected question(s) first!'},
+                status=400
+            )
+
+        # Check enough questions
+        total = exam.questions.count()
+        if total < exam.total_questions_allowed:
+            return Response(
+                {'error': f'Need {exam.total_questions_allowed} questions. Have {total}.'},
+                status=400
+            )
+
+        # Reset approved questions back to PENDING on resubmit
+        exam.questions.filter(status='APPROVED').update(status='PENDING')
+
+        exam.workflow_status = 'SUBMITTED'
+        exam.save()
+
+        AuditLog.objects.create(
+            user=request.user,
+            action_type='SUBMIT_APPROVAL',
+            description=f"Submitted exam for approval: {exam.exam_name}"
+        )
+
+        return Response({'message': 'Submitted for approval successfully!'})
+
     except Exam.DoesNotExist:
         return Response({'error': 'Exam not found'}, status=404)
-
-    if exam.assigned_staff != user:
-        return Response({'error': 'Not assigned to this exam'}, status=403)
-    
-    if exam.workflow_status != 'DRAFT':
-        return Response({'error': 'Exam already submitted for approval or processed'}, status=400)
-
-    exam.workflow_status = 'SUBMITTED'
-    exam.save()
-
-    create_audit_log(
-    request.user,
-    'CREATE_EXAM',
-    f"Submitted exam for approval: {exam.exam_name}"
-)
-
-    return Response({'message': 'Submitted for admin approval'})
 
 
 @api_view(['POST'])
@@ -822,7 +846,10 @@ def create_question(request, exam_id):
         option_c=request.data.get('option_c'),
         option_d=request.data.get('option_d'),
         correct_option=request.data.get('correct_option'),
-        created_by=user
+        created_by=user,
+        status='PENDING',
+        rejection_reason='',
+
     )
     create_audit_log(
     request.user,
@@ -857,56 +884,90 @@ def blockchain_status(request):
             "connected": False,
             "error": str(e)
         }, status=500)
-    
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_exam(request):
-    user = request.user
-
-    if user.role != 'ADMIN':
+    if request.user.role != 'ADMIN':
         return Response({'error': 'Only admin allowed'}, status=403)
 
-    exam = Exam.objects.create(
-        exam_name=request.data.get('exam_name'),
-        exam_date=request.data.get('exam_date'),
-        start_time=request.data.get('start_time'),
-        duration_minutes=request.data.get('duration_minutes'),
-        total_questions_allowed=request.data.get('total_questions_allowed', 10),
-        marks_correct=request.data.get('marks_correct', 4),
-        marks_wrong=request.data.get('marks_wrong', -1),
-        assigned_staff_id=request.data.get('assigned_staff'),
-        created_by=user
-    )
+    try:
+        assigned_staff_id = request.data.get('assigned_staff')
+        assigned_staff = User.objects.get(
+            id=assigned_staff_id, role='STAFF'
+        ) if assigned_staff_id else None
 
-    create_audit_log(user, 'CREATE_EXAM', f"Created exam: {exam.exam_name}")
+        department = request.data.get('department', 'ALL')
+        semester   = request.data.get('semester', None)
 
-    return Response({'message': 'Exam created successfully', 'exam_id': exam.id})    
+        exam = Exam.objects.create(
+            exam_name              = request.data.get('exam_name'),
+            exam_date              = request.data.get('exam_date'),
+            start_time             = request.data.get('start_time'),
+            duration_minutes       = request.data.get('duration_minutes'),
+            total_questions_allowed= request.data.get('total_questions_allowed', 10),
+            marks_correct          = request.data.get('marks_correct', 4),
+            marks_wrong            = request.data.get('marks_wrong', -1),
+            created_by             = request.user,
+            assigned_staff         = assigned_staff,
+            department             = department,
+            semester               = semester,
+        )
 
+        # ── AUTO ENROLL students by department/semester ──
+        if department == 'ALL':
+            students = User.objects.filter(role='STUDENT', is_active=True)
+        else:
+            students = User.objects.filter(
+                role='STUDENT',
+                is_active=True,
+                profile__department=department
+            )
+            if semester:
+                students = students.filter(profile__semester=semester)
+
+        exam.enrolled_students.set(students)
+
+        AuditLog.objects.create(
+            user=request.user,
+            action_type='CREATE_EXAM',
+            description=f"Created exam: {exam.exam_name} for {department} Sem {semester or 'All'}"
+        )
+
+        return Response({
+            'message': 'Exam created successfully!',
+            'exam_id': exam.id,
+            'enrolled_count': students.count(),
+            'department': department,
+            'semester': semester,
+        })
+
+    except Exception as e:
+        return Response({'error': str(e)}, status=400)
+    
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_questions(request, exam_id):
-    user = request.user
-
-    if user.role not in ['STAFF', 'ADMIN']:
-        return Response({'error': 'Not allowed'}, status=403)
-
     try:
         exam = Exam.objects.get(id=exam_id)
+        questions = Question.objects.filter(exam=exam)
+        data = []
+        for q in questions:
+            data.append({
+                'id': q.id,
+                'question_text': q.question_text,
+                'option_a': q.option_a,
+                'option_b': q.option_b,
+                'option_c': q.option_c,
+                'option_d': q.option_d,
+                'correct_option': q.correct_option,
+                'status': q.status,                          
+                'rejection_reason': q.rejection_reason or '', 
+            })
+        return Response(data)
     except Exam.DoesNotExist:
         return Response({'error': 'Exam not found'}, status=404)
 
-    questions = exam.questions.all()
-    data = [{
-        'id': q.id,
-        'question_text': q.question_text,
-        'option_a': q.option_a,
-        'option_b': q.option_b,
-        'option_c': q.option_c,
-        'option_d': q.option_d,
-        'correct_option': q.correct_option,
-    } for q in questions]
 
-    return Response(data)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -967,7 +1028,6 @@ def list_pending_questions(request):
 
     return Response(data)
 
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def approve_question(request, question_id):
@@ -975,11 +1035,12 @@ def approve_question(request, question_id):
         return Response({'error': 'Only admin allowed'}, status=403)
     try:
         question = Question.objects.get(id=question_id)
+        question.status = 'APPROVED'
+        question.rejection_reason = ''
+        question.save()
+        return Response({'message': 'Question approved!'})
     except Question.DoesNotExist:
         return Response({'error': 'Question not found'}, status=404)
-    question.status = 'APPROVED'
-    question.save()
-    return Response({'message': 'Question approved!'})
 
 
 @api_view(['POST'])
@@ -989,12 +1050,12 @@ def reject_question(request, question_id):
         return Response({'error': 'Only admin allowed'}, status=403)
     try:
         question = Question.objects.get(id=question_id)
+        question.status = 'REJECTED'
+        question.rejection_reason = request.data.get('reason', 'No reason provided')
+        question.save()
+        return Response({'message': 'Question rejected!'})
     except Question.DoesNotExist:
         return Response({'error': 'Question not found'}, status=404)
-    question.status = 'REJECTED'
-    question.rejection_reason = request.data.get('reason', '')
-    question.save()
-    return Response({'message': 'Question rejected!'})
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -1388,3 +1449,24 @@ def get_notifications(request):
                 pass
 
     return Response(notifications)  
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_question(request, question_id):
+    if request.user.role != 'STAFF':
+        return Response({'error': 'Only staff allowed'}, status=403)
+    try:
+        question = Question.objects.get(
+            id=question_id,
+            created_by=request.user
+        )
+        # Only allow deleting REJECTED questions
+        if question.status != 'REJECTED':
+            return Response(
+                {'error': 'Can only delete rejected questions!'},
+                status=400
+            )
+        question.delete()
+        return Response({'message': 'Question deleted!'})
+    except Question.DoesNotExist:
+        return Response({'error': 'Question not found'}, status=404)

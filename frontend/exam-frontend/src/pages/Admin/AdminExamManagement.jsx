@@ -28,7 +28,8 @@ const AdminExamManagement = () => {
   const [form, setForm] = useState({
     exam_name: "", exam_date: "", start_time: "",
     duration_minutes: "", total_questions_allowed: 10,
-    marks_correct: 4, marks_wrong: -1, assigned_staff: ""
+    marks_correct: 4, marks_wrong: -1, assigned_staff: "",
+    department: "CS", semester: "1",
   });
 
   useEffect(() => { fetchAll(); }, []);
@@ -227,12 +228,42 @@ const AdminExamManagement = () => {
 
                   {/* Details */}
                   <div style={s.detailsGrid}>
-                    <div style={s.detail}><span style={s.detailIcon}>📅</span><span>{exam.exam_date}</span></div>
-                    <div style={s.detail}><span style={s.detailIcon}>⏰</span><span>{exam.start_time}</span></div>
-                    <div style={s.detail}><span style={s.detailIcon}>⏱️</span><span>{exam.duration} min</span></div>
-                    <div style={s.detail}><span style={s.detailIcon}>👨‍🏫</span><span>{exam.assigned_staff || "Not assigned"}</span></div>
-                  </div>
+  <div style={s.detail}>
+    <span style={s.detailIcon}>📅</span>
+    <span>{exam.exam_date}</span>
+  </div>
 
+  <div style={s.detail}>
+    <span style={s.detailIcon}>⏰</span>
+    <span>{exam.start_time}</span>
+  </div>
+
+  <div style={s.detail}>
+    <span style={s.detailIcon}>⏱️</span>
+    <span>{exam.duration} min</span>
+  </div>
+
+  <div style={s.detail}>
+    <span style={s.detailIcon}>👨‍🏫</span>
+    <span>{exam.assigned_staff || "Not assigned"}</span>
+  </div>
+
+  {/* ADD THESE */}
+  <div style={s.detail}>
+    <span style={s.detailIcon}>🏛️</span>
+    <span>{exam.department === "ALL" ? "All Depts" : exam.department}</span>
+  </div>
+
+  <div style={s.detail}>
+    <span style={s.detailIcon}>📚</span>
+    <span>{exam.semester ? `Sem ${exam.semester}` : "All Sems"}</span>
+  </div>
+
+  <div style={s.detail}>
+    <span style={s.detailIcon}>👨‍🎓</span>
+    <span>{exam.enrolled_count || 0} enrolled</span>
+  </div>
+</div>
                   <div style={s.divider} />
 
                   {/* Actions */}
@@ -263,69 +294,122 @@ const AdminExamManagement = () => {
           </div>
         )}
       </div>
+{/* ── CREATE EXAM MODAL ── */}
+{showCreate && (
+  <div style={s.overlay} onClick={() => setShowCreate(false)}>
+    <div style={{ ...s.modal, maxWidth:680 }} onClick={e => e.stopPropagation()}>
+      <div style={s.modalHeader}>
+        <div style={s.modalTitle}>➕ Create New Exam</div>
+        <button onClick={() => setShowCreate(false)} style={s.closeBtn}>✕</button>
+      </div>
 
-      {/* ── CREATE EXAM MODAL ── */}
-      {showCreate && (
-        <div style={s.overlay} onClick={() => setShowCreate(false)}>
-          <div style={s.modal} onClick={e => e.stopPropagation()}>
-            <div style={s.modalHeader}>
-              <div style={s.modalTitle}>➕ Create New Exam</div>
-              <button onClick={() => setShowCreate(false)} style={s.closeBtn}>✕</button>
-            </div>
-
-            <div style={s.formGrid}>
-              <div style={s.formGroup}>
-                <label style={s.label}>Exam Name *</label>
-                <input style={s.input} placeholder="e.g. Mathematics Final Exam"
-                  value={form.exam_name} onChange={e => setForm({...form, exam_name: e.target.value})} />
-              </div>
-              <div style={s.formGroup}>
-                <label style={s.label}>Assign Staff *</label>
-                <select style={s.input} value={form.assigned_staff}
-                  onChange={e => setForm({...form, assigned_staff: e.target.value})}>
-                  <option value="">Select Staff</option>
-                  {staff.map(st => <option key={st.id} value={st.id}>{st.username}</option>)}
-                </select>
-              </div>
-              <div style={s.formGroup}>
-                <label style={s.label}>Exam Date *</label>
-                <input style={s.input} type="date" value={form.exam_date}
-                  onChange={e => setForm({...form, exam_date: e.target.value})} />
-              </div>
-              <div style={s.formGroup}>
-                <label style={s.label}>Start Time *</label>
-                <input style={s.input} type="time" value={form.start_time}
-                  onChange={e => setForm({...form, start_time: e.target.value})} />
-              </div>
-              <div style={s.formGroup}>
-                <label style={s.label}>Duration (minutes) *</label>
-                <input style={s.input} type="number" placeholder="e.g. 60"
-                  value={form.duration_minutes} onChange={e => setForm({...form, duration_minutes: e.target.value})} />
-              </div>
-              <div style={s.formGroup}>
-                <label style={s.label}>Total Questions *</label>
-                <input style={s.input} type="number" value={form.total_questions_allowed}
-                  onChange={e => setForm({...form, total_questions_allowed: e.target.value})} />
-              </div>
-              <div style={s.formGroup}>
-                <label style={s.label}>Marks per Correct Answer</label>
-                <input style={s.input} type="number" value={form.marks_correct}
-                  onChange={e => setForm({...form, marks_correct: e.target.value})} />
-              </div>
-              <div style={s.formGroup}>
-                <label style={s.label}>Marks per Wrong Answer</label>
-                <input style={s.input} type="number" value={form.marks_wrong}
-                  onChange={e => setForm({...form, marks_wrong: e.target.value})} />
-              </div>
-            </div>
-
-            <div style={s.modalFooter}>
-              <button onClick={() => setShowCreate(false)} style={s.cancelBtn}>Cancel</button>
-              <button onClick={handleCreate} style={s.submitBtn}>➕ Create Exam</button>
-            </div>
-          </div>
+      <div style={s.formGrid}>
+        {/* Exam Name */}
+        <div style={{ ...s.formGroup, gridColumn:"1 / -1" }}>
+          <label style={s.label}>Exam Name *</label>
+          <input style={s.input} placeholder="e.g. Mathematics Final Exam"
+            value={form.exam_name} onChange={e => setForm({...form, exam_name: e.target.value})} />
         </div>
-      )}
+
+        {/* Assign Staff */}
+        <div style={s.formGroup}>
+          <label style={s.label}>Assign Staff *</label>
+          <select style={s.input} value={form.assigned_staff}
+            onChange={e => setForm({...form, assigned_staff: e.target.value})}>
+            <option value="">Select Staff</option>
+            {staff.map(st => <option key={st.id} value={st.id}>{st.username}</option>)}
+          </select>
+        </div>
+
+        {/* Department */}
+        <div style={s.formGroup}>
+          <label style={s.label}>Department *</label>
+          <select style={s.input} value={form.department}
+            onChange={e => setForm({...form, department: e.target.value})}>
+            <option value="ALL">All Departments</option>
+            {[
+              ["CS","Computer Science"],
+              ["ECE","Electronics"],
+              ["MECH","Mechanical"],
+              ["CIVIL","Civil"],
+              ["MBA","MBA"],
+            ].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+
+        {/* Semester */}
+        <div style={s.formGroup}>
+          <label style={s.label}>Semester *</label>
+          <select style={s.input} value={form.semester}
+            onChange={e => setForm({...form, semester: e.target.value})}>
+            <option value="">All Semesters</option>
+            {["1","2","3","4","5","6","7","8"].map(s => (
+              <option key={s} value={s}>Semester {s}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Exam Date */}
+        <div style={s.formGroup}>
+          <label style={s.label}>Exam Date *</label>
+          <input style={s.input} type="date" value={form.exam_date}
+            onChange={e => setForm({...form, exam_date: e.target.value})} />
+        </div>
+
+        {/* Start Time */}
+        <div style={s.formGroup}>
+          <label style={s.label}>Start Time *</label>
+          <input style={s.input} type="time" value={form.start_time}
+            onChange={e => setForm({...form, start_time: e.target.value})} />
+        </div>
+
+        {/* Duration */}
+        <div style={s.formGroup}>
+          <label style={s.label}>Duration (minutes) *</label>
+          <input style={s.input} type="number" placeholder="e.g. 60"
+            value={form.duration_minutes}
+            onChange={e => setForm({...form, duration_minutes: e.target.value})} />
+        </div>
+
+        {/* Total Questions */}
+        <div style={s.formGroup}>
+          <label style={s.label}>Total Questions *</label>
+          <input style={s.input} type="number" value={form.total_questions_allowed}
+            onChange={e => setForm({...form, total_questions_allowed: e.target.value})} />
+        </div>
+
+        {/* Marks Correct */}
+        <div style={s.formGroup}>
+          <label style={s.label}>Marks per Correct</label>
+          <input style={s.input} type="number" value={form.marks_correct}
+            onChange={e => setForm({...form, marks_correct: e.target.value})} />
+        </div>
+
+        {/* Marks Wrong */}
+        <div style={s.formGroup}>
+          <label style={s.label}>Marks per Wrong</label>
+          <input style={s.input} type="number" value={form.marks_wrong}
+            onChange={e => setForm({...form, marks_wrong: e.target.value})} />
+        </div>
+      </div>
+
+      {/* Auto enroll info */}
+      <div style={{ padding:"12px 16px", background:"rgba(0,201,167,0.06)", border:"1px solid rgba(0,201,167,0.15)", borderRadius:10, marginBottom:20, fontSize:13, color:"rgba(26,26,46,0.6)", display:"flex", alignItems:"center", gap:8 }}>
+        <span style={{ fontSize:16 }}>ℹ️</span>
+        <span>
+          Students from <strong>{form.department === "ALL" ? "All Departments" : form.department}</strong>
+          {form.semester ? `, Semester ${form.semester}` : ", All Semesters"} will be
+          <strong> automatically enrolled</strong> when exam is created!
+        </span>
+      </div>
+
+      <div style={s.modalFooter}>
+        <button onClick={() => setShowCreate(false)} style={s.cancelBtn}>Cancel</button>
+        <button onClick={handleCreate} style={s.submitBtn}>➕ Create Exam</button>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* ── NEW ENROLL STUDENTS MODAL ── */}
       {enrollModal && (

@@ -31,6 +31,15 @@ class Exam(models.Model):
         ('LOCKED', 'Locked')
     )
 
+    DEPARTMENT_CHOICES = (
+        ('CS',    'Computer Science'),
+        ('ECE',   'Electronics'),
+        ('MECH',  'Mechanical'),
+        ('CIVIL', 'Civil'),
+        ('MBA',   'MBA'),
+        ('ALL',   'All Departments'),
+    )
+
     exam_name = models.CharField(max_length=200)
     exam_date = models.DateField()
     start_time = models.TimeField()
@@ -39,6 +48,18 @@ class Exam(models.Model):
 
     marks_correct = models.IntegerField(default=4)
     marks_wrong = models.IntegerField(default=-1)
+
+    # ← ADD THESE 2 FIELDS
+    department = models.CharField(
+        max_length=20,
+        choices=DEPARTMENT_CHOICES,
+        default='ALL'
+    )
+    semester = models.CharField(
+        max_length=2,
+        blank=True,
+        null=True
+    )
 
     workflow_status = models.CharField(
         max_length=20,
@@ -61,19 +82,18 @@ class Exam(models.Model):
         related_name='assigned_exams',
         limit_choices_to={'role': 'STAFF'}
     )
+
     enrolled_students = models.ManyToManyField(
-    User,
-    related_name='enrolled_exams',
-    blank=True,
-    limit_choices_to={'role': 'STUDENT'}
-)
+        User,
+        related_name='enrolled_exams',
+        blank=True,
+        limit_choices_to={'role': 'STUDENT'}
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.exam_name
-
-
 
 # =================================================
 # QUESTION MODEL (MCQs)
@@ -158,7 +178,7 @@ class QuestionPaper(models.Model):
     is_locked = models.BooleanField(default=False)
 
     uploaded_at = models.DateTimeField(auto_now_add=True)
-
+    locked_at = models.DateTimeField(null=True, blank=True)
     def __str__(self):
         return f"Question Paper for {self.exam.exam_name}"
 
@@ -203,19 +223,6 @@ class StudentExam(models.Model):
 # =================================================
 # RESULT MODEL
 # =================================================
-class Result(models.Model):
-    student_exam = models.OneToOneField(
-        StudentExam,
-        on_delete=models.CASCADE
-    )
-
-    score = models.IntegerField()
-    result_hash = models.CharField(max_length=255)
-
-    evaluated_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"Result: {self.student_exam}"
 
 class AuditLog(models.Model):
 

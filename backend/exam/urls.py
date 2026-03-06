@@ -25,12 +25,15 @@ from .views import (
     approve_question,
     reject_question,
     staff_exam_results,
-    student_my_result,
     admin_list_results,
     publish_results,
     verify_result_hash,
     enroll_students,
     get_notifications,
+    create_user,
+    toggle_user,
+    reject_exam,
+    delete_question,
 
 )
 
@@ -52,12 +55,13 @@ urlpatterns = [
     path('exams/<int:exam_id>/create-paper/', create_question_paper),
     path('exams/<int:exam_id>/lock/', lock_question_paper),
     path('exams/<int:exam_id>/staff-results/', staff_exam_results),
+    path('exams/<int:exam_id>/reject/', reject_exam),
+    path('exams/questions/<int:question_id>/delete/', delete_question),
     # -------------------------
     # ADMIN APIs
     # -------------------------
     path('exams/<int:exam_id>/verify/', verify_question_paper),
     path('exams/<int:exam_id>/results/<int:student_id>/verify/',verify_result),
-    path('exams/<int:exam_id>/my-result/',student_my_result),
     path('login/', login_user),
     path('exams/<int:exam_id>/submit-for-approval/', submit_for_approval),
     path('exams/<int:exam_id>/approve/', approve_exam),
@@ -80,6 +84,9 @@ urlpatterns = [
     path('admin/results/<int:exam_id>/publish/', publish_results),
     path('admin/results/<int:exam_id>/verify-hash/', verify_result_hash),
     path('exams/<int:exam_id>/enroll/', enroll_students),
+    path('admin/create-user/', create_user),
+    path('admin/toggle-user/<int:user_id>/', toggle_user),  
+
     
     
 ]

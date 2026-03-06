@@ -4,15 +4,20 @@ import api from "../../services/api";
 
 const StaffDashboard = () => {
   const [exams, setExams] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  useEffect(() => { fetchExams(); }, []);
+  useEffect(() => { fetchAll(); }, []);
 
-  const fetchExams = async () => {
+  const fetchAll = async () => {
     try {
-      const res = await api.get("/api/exams/");
-      setExams(res.data);
+      const [examsRes, notifRes] = await Promise.all([
+        api.get("/api/exams/"),
+        api.get("/api/notifications/"),
+      ]);
+      setExams(examsRes.data);
+      setNotifications(notifRes.data);
     } catch (err) {
       console.error(err);
     } finally {
@@ -21,16 +26,20 @@ const StaffDashboard = () => {
   };
 
   const stats = [
-    { label:"Assigned Exams", value: exams.length,                                          icon:"📋", color:"#00C9A7" },
-    { label:"Draft",          value: exams.filter(e=>e.workflow_status==="DRAFT").length,    icon:"✏️", color:"#94a3b8" },
-    { label:"Submitted",      value: exams.filter(e=>e.workflow_status==="SUBMITTED").length,icon:"⏳", color:"#FFD166" },
-    { label:"Approved",       value: exams.filter(e=>e.workflow_status==="APPROVED").length, icon:"✅", color:"#00C9A7" },
-    { label:"Rejected",       value: exams.filter(e=>e.workflow_status==="REJECTED").length, icon:"❌", color:"#FF6B6B" },
-    { label:"Locked",         value: exams.filter(e=>e.workflow_status==="LOCKED").length,   icon:"🔒", color:"#6C63FF" },
+    { label:"Assigned Exams", value: exams.length,                                           icon:"📋", color:"#00C9A7" },
+    { label:"Draft",          value: exams.filter(e=>e.workflow_status==="DRAFT").length,     icon:"✏️", color:"#94a3b8" },
+    { label:"Submitted",      value: exams.filter(e=>e.workflow_status==="SUBMITTED").length, icon:"⏳", color:"#FFD166" },
+    { label:"Approved",       value: exams.filter(e=>e.workflow_status==="APPROVED").length,  icon:"✅", color:"#00C9A7" },
+    { label:"Rejected",       value: exams.filter(e=>e.workflow_status==="REJECTED").length,  icon:"❌", color:"#FF6B6B" },
+    { label:"Locked",         value: exams.filter(e=>e.workflow_status==="LOCKED").length,    icon:"🔒", color:"#6C63FF" },
   ];
 
-  const approvedExams  = exams.filter(e => e.workflow_status === "APPROVED");
-  const rejectedExams  = exams.filter(e => e.workflow_status === "REJECTED");
+  const approvedExams = exams.filter(e => e.workflow_status === "APPROVED");
+  const rejectedExams = exams.filter(e => e.workflow_status === "REJECTED");
+
+  // Per-exam question notifications from API
+  const qnApprovedNotifs = notifications.filter(n => n.type === "QN_APPROVED");
+  const qnRejectedNotifs = notifications.filter(n => n.type === "QN_REJECTED");
 
   if (loading) return (
     <div style={{ padding:40, textAlign:"center", color:"rgba(26,46,42,0.5)", fontFamily:"'DM Sans',sans-serif" }}>
@@ -43,7 +52,6 @@ const StaffDashboard = () => {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap');
         @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
         .fade-up { animation: fadeUp 0.3s ease both; }
         .act-btn { transition: all 0.15s; cursor: pointer; }
         .act-btn:hover { filter: brightness(1.05); transform: translateY(-2px); }
@@ -67,7 +75,7 @@ const StaffDashboard = () => {
           </div>
         </div>
 
-        {/* ✅ APPROVED NOTIFICATION */}
+        {/* ✅ EXAM APPROVED NOTIFICATION */}
         {approvedExams.length > 0 && (
           <div className="fade-up" style={{ background:"rgba(0,201,167,0.08)", border:"2px solid rgba(0,201,167,0.3)", borderRadius:16, padding:20, marginBottom:16 }}>
             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
@@ -97,7 +105,7 @@ const StaffDashboard = () => {
           </div>
         )}
 
-        {/* ❌ REJECTED NOTIFICATION */}
+        {/* ❌ EXAM REJECTED NOTIFICATION */}
         {rejectedExams.length > 0 && (
           <div className="fade-up" style={{ background:"rgba(255,107,107,0.06)", border:"2px solid rgba(255,107,107,0.25)", borderRadius:16, padding:20, marginBottom:16, animationDelay:"0.05s" }}>
             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
@@ -121,6 +129,63 @@ const StaffDashboard = () => {
                   <span style={{ fontSize:14 }}>📝</span>
                   <span style={{ fontSize:13, fontWeight:600 }}>{exam.exam_name}</span>
                   <span style={{ fontSize:11, color:"rgba(26,46,42,0.4)", marginLeft:"auto" }}>📅 {exam.exam_date}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ✅ QUESTION APPROVED PER EXAM — from API */}
+        {qnApprovedNotifs.length > 0 && (
+          <div className="fade-up" style={{ background:"rgba(0,201,167,0.04)", border:"1px solid rgba(0,201,167,0.2)", borderRadius:16, padding:20, marginBottom:16, animationDelay:"0.08s" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+              <span style={{ fontSize:20 }}>✅</span>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontSize:15, fontWeight:700, color:"#00C9A7" }}>
+                Questions Approved by Admin
+              </div>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {qnApprovedNotifs.map(notif => (
+                <div key={notif.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px", background:"#fff", border:"1px solid rgba(0,201,167,0.12)", borderRadius:10 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ width:32, height:32, borderRadius:8, background:"rgba(0,201,167,0.08)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>📝</div>
+                    <div>
+                      <div style={{ fontSize:13, fontWeight:700 }}>{notif.exam_name}</div>
+                      <div style={{ fontSize:11, color:"rgba(26,46,42,0.5)", marginTop:1 }}>{notif.message}</div>
+                    </div>
+                  </div>
+                  <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20, background:"rgba(0,201,167,0.1)", color:"#00C9A7" }}>
+                    {notif.count} approved
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ❌ QUESTION REJECTED PER EXAM — from API */}
+        {qnRejectedNotifs.length > 0 && (
+          <div className="fade-up" style={{ background:"rgba(255,107,107,0.04)", border:"1px solid rgba(255,107,107,0.2)", borderRadius:16, padding:20, marginBottom:16, animationDelay:"0.1s" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+              <span style={{ fontSize:20 }}>❌</span>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontSize:15, fontWeight:700, color:"#FF6B6B" }}>
+                Questions Rejected — Needs Fix
+              </div>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {qnRejectedNotifs.map(notif => (
+                <div key={notif.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px", background:"#fff", border:"1px solid rgba(255,107,107,0.12)", borderRadius:10 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ width:32, height:32, borderRadius:8, background:"rgba(255,107,107,0.08)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>📝</div>
+                    <div>
+                      <div style={{ fontSize:13, fontWeight:700 }}>{notif.exam_name}</div>
+                      <div style={{ fontSize:11, color:"rgba(26,46,42,0.5)", marginTop:1 }}>{notif.message}</div>
+                    </div>
+                  </div>
+                  <button className="act-btn" onClick={() => navigate("/staff/questions")}
+                    style={{ padding:"6px 14px", borderRadius:8, border:"1px solid rgba(255,107,107,0.25)", background:"rgba(255,107,107,0.08)", color:"#FF6B6B", fontSize:11, fontWeight:700, fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap" }}>
+                    ✏️ Fix →
+                  </button>
                 </div>
               ))}
             </div>
@@ -155,23 +220,28 @@ const StaffDashboard = () => {
             </div>
           ) : (
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {exams.map((exam,i) => {
+              {exams.map((exam, i) => {
                 const STATUS_CONFIG = {
-                  DRAFT:     { color:"#94a3b8", label:"Draft",     icon:"✏️",  action:"Add Questions",   path:"/staff/questions" },
-                  SUBMITTED: { color:"#FFD166", label:"Submitted", icon:"⏳",  action:"Awaiting Review", path:null },
-                  APPROVED:  { color:"#00C9A7", label:"Approved",  icon:"✅",  action:"Lock Paper",      path:"/staff/lock" },
-                  REJECTED:  { color:"#FF6B6B", label:"Rejected",  icon:"❌",  action:"Fix Questions",   path:"/staff/questions" },
-                  LOCKED:    { color:"#6C63FF", label:"Locked",    icon:"🔒",  action:"View Results",    path:"/staff/results" },
+                  DRAFT:     { color:"#94a3b8", label:"Draft",     icon:"✏️", action:"Add Questions",   path:"/staff/questions" },
+                  SUBMITTED: { color:"#FFD166", label:"Submitted", icon:"⏳", action:"Awaiting Review", path:null              },
+                  APPROVED:  { color:"#00C9A7", label:"Approved",  icon:"✅", action:"Lock Paper",      path:"/staff/lock"     },
+                  REJECTED:  { color:"#FF6B6B", label:"Rejected",  icon:"❌", action:"Fix Questions",   path:"/staff/questions" },
+                  LOCKED:    { color:"#6C63FF", label:"Locked",    icon:"🔒", action:"View Results",    path:"/staff/results"  },
                 };
                 const sc = STATUS_CONFIG[exam.workflow_status] || STATUS_CONFIG.DRAFT;
                 return (
-                  <div key={exam.id} className="fade-up" style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", background: exam.workflow_status==="APPROVED" ? "rgba(0,201,167,0.03)" : exam.workflow_status==="REJECTED" ? "rgba(255,107,107,0.03)" : "rgba(26,46,42,0.02)", border:`1px solid ${sc.color}22`, borderRadius:12, animationDelay:`${i*0.05}s` }}>
+                  <div key={exam.id} className="fade-up"
+                    style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", background: exam.workflow_status==="APPROVED" ? "rgba(0,201,167,0.03)" : exam.workflow_status==="REJECTED" ? "rgba(255,107,107,0.03)" : "rgba(26,46,42,0.02)", border:`1px solid ${sc.color}22`, borderRadius:12, animationDelay:`${i*0.05}s` }}>
                     <div style={{ width:36, height:36, borderRadius:10, background:`${sc.color}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>
                       {sc.icon}
                     </div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:14, fontWeight:600, marginBottom:2 }}>{exam.exam_name}</div>
-                      <div style={{ fontSize:12, color:"rgba(26,46,42,0.45)" }}>📅 {exam.exam_date} · ⏰ {exam.start_time}</div>
+                      <div style={{ fontSize:12, color:"rgba(26,46,42,0.45)" }}>
+                        📅 {exam.exam_date} · ⏰ {exam.start_time}
+                        {exam.department && ` · 🏛️ ${exam.department}`}
+                        {exam.semester && ` Sem ${exam.semester}`}
+                      </div>
                     </div>
                     <span style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:20, color:sc.color, background:`${sc.color}15`, border:`1px solid ${sc.color}33` }}>
                       {sc.icon} {sc.label}
