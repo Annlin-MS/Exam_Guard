@@ -15,6 +15,13 @@ const AttemptExam = () => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [marked, setMarked] = useState([]);
   const timerRef = useRef(null);
+  const answersRef = useRef({});
+  const autoSubmitRef = useRef(false);
+
+  // Keep answersRef in sync with answers state
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
 
   useEffect(() => {
     startAndFetch();
@@ -32,32 +39,37 @@ const AttemptExam = () => {
   }, []);
 
   const startAndFetch = async () => {
-    try {
-      await api.post(`/api/exams/${examId}/start/`);
-      const res = await api.get(`/api/exams/${examId}/questions/`);
-      setQuestions(res.data.questions);
-      setExamName(res.data.exam);
+  try {
+    await api.post(`/api/exams/${examId}/start/`);
 
-      // Get duration from exam list
-      const examsRes = await api.get("/api/exams/");
-      const exam = examsRes.data.find(e => e.id === parseInt(examId));
-      if (exam) {
-        setTimeLeft(exam.duration * 60);
-        startTimer(exam.duration * 60);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    // ✅ fetch-paper returns questions + duration together
+    const res = await api.get(`/api/exams/${examId}/fetch-paper/`);
+    setQuestions(res.data.questions);
+    setExamName(res.data.exam);
+
+    // ✅ Get duration directly from fetch-paper response
+    const duration = res.data.duration_minutes || 60;
+    const remaining = Math.max(parseInt(duration) * 60, 60);
+    setTimeLeft(remaining);
+    startTimer(remaining);
+
+  } catch (err) {
+    console.error("Failed to load exam:", err);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const startTimer = (seconds) => {
     timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(timerRef.current);
-          handleSubmit(true);
+          // ✅ FIX 2 — Auto submit using answersRef to avoid stale closure
+          if (!autoSubmitRef.current) {
+            autoSubmitRef.current = true;
+            submitAnswers();
+          }
           return 0;
         }
         return prev - 1;
@@ -66,9 +78,28 @@ const AttemptExam = () => {
   };
 
   const formatTime = (s) => {
-    const m = Math.floor(s / 60);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
     const sec = s % 60;
+    if (h > 0) return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
     return `${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+  };
+
+  // ✅ FIX 2 — Uses answersRef instead of answers state
+  const submitAnswers = async () => {
+    setSubmitting(true);
+    clearInterval(timerRef.current);
+    try {
+      const answersArr = Object.entries(answersRef.current).map(([question_id, selected_option]) => ({
+        question_id: parseInt(question_id),
+        selected_option
+      }));
+      const res = await api.post(`/api/exams/${examId}/submit/`, { answers: answersArr });
+      navigate(`/student/results`, { state: { result: res.data, examId } });
+    } catch (err) {
+      console.error(err);
+      setSubmitting(false);
+    }
   };
 
   const handleAnswer = (questionId, option) => {
@@ -79,21 +110,10 @@ const AttemptExam = () => {
     setMarked(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
   };
 
-  const handleSubmit = async (auto = false) => {
+  // Manual submit from button
+  const handleSubmit = async () => {
     setShowConfirm(false);
-    setSubmitting(true);
-    clearInterval(timerRef.current);
-    try {
-      const answersArr = Object.entries(answers).map(([question_id, selected_option]) => ({
-        question_id: parseInt(question_id),
-        selected_option
-      }));
-      const res = await api.post(`/api/exams/${examId}/submit/`, { answers: answersArr });
-      navigate(`/student/results`, { state: { result: res.data, examId } });
-    } catch (err) {
-      console.error(err);
-      setSubmitting(false);
-    }
+    await submitAnswers();
   };
 
   if (loading) return (
@@ -124,9 +144,11 @@ const AttemptExam = () => {
 
       <div style={{ minHeight:"100vh", background:"#fff8f0", fontFamily:"'DM Sans',sans-serif" }}>
 
-        {/* Top Bar */}
+        {/* ── TOP BAR ── */}
         <div style={{ background:"#fff", borderBottom:"1px solid rgba(255,107,107,0.15)", padding:"0 28px", height:64, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100 }}>
-          <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:800, color:"#2e1a1a" }}>{examName}</div>
+          <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:800, color:"#2e1a1a" }}>
+            {examName}
+          </div>
           <div style={{ display:"flex", alignItems:"center", gap:16 }}>
             <div style={{ fontSize:13, color:"rgba(46,26,26,0.5)" }}>
               {answeredCount}/{questions.length} answered
@@ -137,18 +159,19 @@ const AttemptExam = () => {
               </div>
             )}
             <button onClick={() => setShowConfirm(true)} disabled={submitting}
-              style={{ padding:"9px 20px", background:"#FF6B6B", color:"#fff", border:"none", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 12px rgba(255,107,107,0.3)" }}>
-              {submitting ? "Submitting..." : "Submit Exam"}
+              style={{ padding:"9px 20px", background:"#FF6B6B", color:"#fff", border:"none", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 12px rgba(255,107,107,0.3)", opacity: submitting ? 0.7 : 1 }}>
+              {submitting ? "Submitting..." : "📤 Submit Exam"}
             </button>
           </div>
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 280px", gap:20, padding:24, maxWidth:1200, margin:"0 auto" }}>
 
-          {/* Question Area */}
+          {/* ── QUESTION AREA ── */}
           <div>
             {q && (
-              <div className="fade-up" style={{ background:"#fff", borderRadius:16, padding:28, border:"1px solid rgba(255,107,107,0.08)" }}>
+              <div key={current} className="fade-up" style={{ background:"#fff", borderRadius:16, padding:28, border:"1px solid rgba(255,107,107,0.08)" }}>
+
                 {/* Question Header */}
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
                   <span style={{ fontSize:12, fontWeight:700, color:"rgba(46,26,26,0.4)", letterSpacing:"0.08em" }}>
@@ -156,11 +179,11 @@ const AttemptExam = () => {
                   </span>
                   <button className="nav-q" onClick={() => toggleMark(current)}
                     style={{ padding:"6px 14px", borderRadius:8, background: marked.includes(current) ? "rgba(255,209,102,0.15)" : "rgba(46,26,26,0.05)", color: marked.includes(current) ? "#FFD166" : "rgba(46,26,26,0.4)", fontSize:12 }}>
-                    {marked.includes(current) ? "🔖 Marked" : "🔖 Mark"}
+                    {marked.includes(current) ? "🔖 Marked" : "🔖 Mark for Review"}
                   </button>
                 </div>
 
-                {/* Progress */}
+                {/* Progress Bar */}
                 <div style={{ height:4, background:"rgba(255,107,107,0.1)", borderRadius:2, marginBottom:24, overflow:"hidden" }}>
                   <div style={{ height:"100%", background:"#FF6B6B", borderRadius:2, width:`${((current+1)/questions.length)*100}%`, transition:"width 0.3s" }} />
                 </div>
@@ -204,12 +227,16 @@ const AttemptExam = () => {
             )}
           </div>
 
-          {/* Question Navigator */}
+          {/* ── QUESTION NAVIGATOR ── */}
           <div>
             <div style={{ background:"#fff", borderRadius:16, padding:20, border:"1px solid rgba(255,107,107,0.08)", position:"sticky", top:84 }}>
-              <div style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, marginBottom:16 }}>Question Navigator</div>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, marginBottom:16 }}>
+                📊 Question Navigator
+              </div>
+
+              {/* Grid */}
               <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:16 }}>
-                {questions.map((q,i) => (
+                {questions.map((q, i) => (
                   <button key={i} className="nav-q" onClick={() => setCurrent(i)}
                     style={{ width:"100%", aspectRatio:"1", borderRadius:8, fontSize:12, background: current===i ? "#FF6B6B" : answers[q.id] ? "rgba(0,201,167,0.12)" : marked.includes(i) ? "rgba(255,209,102,0.15)" : "rgba(46,26,26,0.05)", color: current===i ? "#fff" : answers[q.id] ? "#00C9A7" : marked.includes(i) ? "#FFD166" : "rgba(46,26,26,0.5)", border: current===i ? "none" : answers[q.id] ? "1px solid rgba(0,201,167,0.25)" : "1px solid transparent" }}>
                     {i+1}
@@ -218,13 +245,13 @@ const AttemptExam = () => {
               </div>
 
               {/* Legend */}
-              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+              <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:16 }}>
                 {[
-                  ["#FF6B6B","Current"],
-                  ["#00C9A7","Answered"],
-                  ["#FFD166","Marked"],
-                  ["rgba(46,26,26,0.3)","Not visited"],
-                ].map(([color,label]) => (
+                  ["#FF6B6B",              "Current"   ],
+                  ["#00C9A7",              "Answered"  ],
+                  ["#FFD166",              "Marked"    ],
+                  ["rgba(46,26,26,0.3)",   "Not visited"],
+                ].map(([color, label]) => (
                   <div key={label} style={{ display:"flex", alignItems:"center", gap:8, fontSize:11, color:"rgba(46,26,26,0.5)" }}>
                     <div style={{ width:12, height:12, borderRadius:3, background:color }} />
                     {label}
@@ -232,35 +259,66 @@ const AttemptExam = () => {
                 ))}
               </div>
 
-              <div style={{ marginTop:16, padding:"12px", background:"rgba(255,107,107,0.05)", borderRadius:10, textAlign:"center" }}>
-                <div style={{ fontFamily:"'Syne',sans-serif", fontSize:20, fontWeight:800, color:"#FF6B6B" }}>{answeredCount}/{questions.length}</div>
+              {/* Answered Count */}
+              <div style={{ padding:"12px", background:"rgba(255,107,107,0.05)", borderRadius:10, textAlign:"center", marginBottom:12 }}>
+                <div style={{ fontFamily:"'Syne',sans-serif", fontSize:24, fontWeight:800, color:"#FF6B6B" }}>
+                  {answeredCount}/{questions.length}
+                </div>
                 <div style={{ fontSize:11, color:"rgba(46,26,26,0.45)", marginTop:2 }}>Answered</div>
               </div>
+
+              {/* Marked Count */}
+              {marked.length > 0 && (
+                <div style={{ padding:"10px 12px", background:"rgba(255,209,102,0.08)", borderRadius:10, textAlign:"center", marginBottom:12, border:"1px solid rgba(255,209,102,0.2)" }}>
+                  <div style={{ fontFamily:"'Syne',sans-serif", fontSize:18, fontWeight:800, color:"#FFD166" }}>
+                    {marked.length}
+                  </div>
+                  <div style={{ fontSize:11, color:"rgba(46,26,26,0.45)", marginTop:2 }}>Marked for Review</div>
+                </div>
+              )}
+
+              {/* Submit Button */}
+              <button onClick={() => setShowConfirm(true)} disabled={submitting}
+                style={{ width:"100%", padding:"12px", background:"#FF6B6B", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 12px rgba(255,107,107,0.3)", opacity: submitting ? 0.7 : 1 }}>
+                📤 Submit Exam
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Confirm Submit Modal */}
+      {/* ── CONFIRM SUBMIT MODAL ── */}
       {showConfirm && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(10,10,20,0.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, backdropFilter:"blur(4px)" }} onClick={() => setShowConfirm(false)}>
-          <div style={{ background:"#fff", borderRadius:20, padding:32, width:"90%", maxWidth:420, textAlign:"center", boxShadow:"0 24px 64px rgba(0,0,0,0.15)" }} onClick={e => e.stopPropagation()}>
+        <div style={{ position:"fixed", inset:0, background:"rgba(10,10,20,0.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, backdropFilter:"blur(4px)" }}
+          onClick={() => setShowConfirm(false)}>
+          <div style={{ background:"#fff", borderRadius:20, padding:32, width:"90%", maxWidth:420, textAlign:"center", boxShadow:"0 24px 64px rgba(0,0,0,0.15)" }}
+            onClick={e => e.stopPropagation()}>
             <div style={{ fontSize:48, marginBottom:16 }}>📤</div>
             <div style={{ fontFamily:"'Syne',sans-serif", fontSize:22, fontWeight:800, marginBottom:8 }}>Submit Exam?</div>
             <div style={{ fontSize:14, color:"rgba(46,26,26,0.5)", marginBottom:8 }}>
               You answered <strong>{answeredCount}</strong> out of <strong>{questions.length}</strong> questions.
             </div>
             {answeredCount < questions.length && (
-              <div style={{ padding:"10px", background:"rgba(255,209,102,0.1)", borderRadius:8, fontSize:13, color:"#FFD166", marginBottom:16 }}>
-                ⚠️ {questions.length - answeredCount} questions unanswered!
+              <div style={{ padding:"10px", background:"rgba(255,209,102,0.1)", borderRadius:8, fontSize:13, color:"#FFD166", marginBottom:16, border:"1px solid rgba(255,209,102,0.25)" }}>
+                ⚠️ {questions.length - answeredCount} question(s) unanswered!
               </div>
             )}
-            <div style={{ display:"flex", gap:12, justifyContent:"center", marginTop:20 }}>
-              <button onClick={() => setShowConfirm(false)} style={{ padding:"12px 24px", borderRadius:10, border:"1px solid rgba(46,26,26,0.15)", background:"transparent", cursor:"pointer", fontSize:14, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>
+            {marked.length > 0 && (
+              <div style={{ padding:"10px", background:"rgba(255,209,102,0.08)", borderRadius:8, fontSize:13, color:"#FFD166", marginBottom:16, border:"1px solid rgba(255,209,102,0.2)" }}>
+                🔖 {marked.length} question(s) marked for review!
+              </div>
+            )}
+            <div style={{ fontSize:13, color:"rgba(46,26,26,0.4)", marginBottom:24 }}>
+              This action cannot be undone.
+            </div>
+            <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
+              <button onClick={() => setShowConfirm(false)}
+                style={{ padding:"12px 24px", borderRadius:10, border:"1px solid rgba(46,26,26,0.15)", background:"transparent", cursor:"pointer", fontSize:14, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>
                 Continue
               </button>
-              <button onClick={() => handleSubmit(false)} style={{ padding:"12px 28px", background:"#FF6B6B", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 16px rgba(255,107,107,0.3)" }}>
-                📤 Submit Now
+              <button onClick={handleSubmit} disabled={submitting}
+                style={{ padding:"12px 28px", background:"#FF6B6B", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 16px rgba(255,107,107,0.3)", opacity: submitting ? 0.7 : 1 }}>
+                {submitting ? "Submitting..." : "📤 Submit Now"}
               </button>
             </div>
           </div>

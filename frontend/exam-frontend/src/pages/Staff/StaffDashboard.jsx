@@ -237,11 +237,20 @@ const StaffDashboard = () => {
                     </div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:14, fontWeight:600, marginBottom:2 }}>{exam.exam_name}</div>
-                      <div style={{ fontSize:12, color:"rgba(26,46,42,0.45)" }}>
-                        📅 {exam.exam_date} · ⏰ {exam.start_time}
-                        {exam.department && ` · 🏛️ ${exam.department}`}
-                        {exam.semester && ` Sem ${exam.semester}`}
-                      </div>
+                      <div style={{ fontSize:12, color:"rgba(26,46,42,0.45)", display:"flex", gap:10, flexWrap:"wrap", marginTop:3 }}>
+  <span>📅 {exam.exam_date}</span>
+  <span>⏰ {exam.start_time}</span>
+  {exam.department && (
+    <span style={{ fontWeight:700, color:"#00C9A7", background:"rgba(0,201,167,0.08)", padding:"1px 8px", borderRadius:6 }}>
+      🏛️ {exam.department}
+    </span>
+  )}
+  {exam.semester && (
+    <span style={{ fontWeight:700, color:"#6C63FF", background:"rgba(108,99,255,0.08)", padding:"1px 8px", borderRadius:6 }}>
+      📚 Sem {exam.semester}
+    </span>
+  )}
+</div>
                     </div>
                     <span style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:20, color:sc.color, background:`${sc.color}15`, border:`1px solid ${sc.color}33` }}>
                       {sc.icon} {sc.label}

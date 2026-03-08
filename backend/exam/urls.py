@@ -14,7 +14,6 @@ from .views import (
     approve_exam,
     list_staff,
     list_students,
-    enroll_students,
     admin_dashboard_stats,
     view_audit_logs,
     create_question,
@@ -34,6 +33,15 @@ from .views import (
     toggle_user,
     reject_exam,
     delete_question,
+    update_exam,
+    resync_enrollment,
+    student_profile,
+    staff_profile,
+    student_result_detail,
+    admin_reports,
+    get_publish_results,
+    student_results,
+
 
 )
 
@@ -45,9 +53,13 @@ urlpatterns = [
     # -------------------------
     path('exams/', list_exams),
     path('exams/<int:exam_id>/start/', start_exam),
-    path('exams/<int:exam_id>/questions/', fetch_question_paper),
+    path('exams/<int:exam_id>/fetch-paper/', fetch_question_paper),
     path('exams/<int:exam_id>/submit/', submit_exam),
     path('exams/<int:exam_id>/my-result/', student_my_result),
+    path('exams/<int:exam_id>/update/', update_exam),
+    path('exams/<int:exam_id>/resync-enrollment/', resync_enrollment),
+    path('student/profile/', student_profile),
+    path('student/results/', student_results),
 
     # -------------------------
     # STAFF APIs
@@ -57,6 +69,10 @@ urlpatterns = [
     path('exams/<int:exam_id>/staff-results/', staff_exam_results),
     path('exams/<int:exam_id>/reject/', reject_exam),
     path('exams/questions/<int:question_id>/delete/', delete_question),
+    path('staff/profile/',staff_profile),
+    path('student/results/<int:result_id>/detail/', student_result_detail),
+    path('admin/reports/',admin_reports),
+
     # -------------------------
     # ADMIN APIs
     # -------------------------
@@ -65,6 +81,7 @@ urlpatterns = [
     path('login/', login_user),
     path('exams/<int:exam_id>/submit-for-approval/', submit_for_approval),
     path('exams/<int:exam_id>/approve/', approve_exam),
+    path('admin/exams/<int:exam_id>/results/',get_publish_results),
         # -------------------------
     # ADMIN MANAGEMENT APIs
     # -------------------------
@@ -81,11 +98,12 @@ urlpatterns = [
     path('admin/questions/<int:question_id>/approve/', approve_question),
     path('admin/questions/<int:question_id>/reject/', reject_question),
     path('admin/results/', admin_list_results),
-    path('admin/results/<int:exam_id>/publish/', publish_results),
+    path('admin/exams/<int:exam_id>/publish-results/', publish_results),
     path('admin/results/<int:exam_id>/verify-hash/', verify_result_hash),
-    path('exams/<int:exam_id>/enroll/', enroll_students),
     path('admin/create-user/', create_user),
-    path('admin/toggle-user/<int:user_id>/', toggle_user),  
+    path('admin/toggle-user/<int:user_id>/', toggle_user), 
+    
+    
 
     
     

@@ -77,8 +77,7 @@ function App() {
           <Route path="dashboard" element={<AdminHome />} />
           <Route path="exams" element={<AdminExamManagement />} />
           <Route path="approvals" element={<AdminApprovals />} />
-          <Route path="staff" element={<AdminUserManagement defaultTab="staff" />} />
-          <Route path="students" element={<AdminUserManagement defaultTab="students" />} />
+          <Route path="/admin/users" element={<AdminUserManagement />} />
           <Route path="blockchain" element={<AdminBlockchain />} />
           <Route path="profile" element={<AdminProfile />} />
           <Route path="reports" element={<AdminReports />} />
