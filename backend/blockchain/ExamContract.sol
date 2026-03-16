@@ -29,7 +29,7 @@ contract ExamContract {
 
     // =========================
     // RESULT STORAGE
-    // =========================
+    // =========================+*---
     // examId => studentHash => resultHash
     mapping(uint => mapping(bytes32 => bytes32)) private results;
 

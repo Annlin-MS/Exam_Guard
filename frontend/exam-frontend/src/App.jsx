@@ -14,6 +14,9 @@ import AdminBlockchain from "./pages/Admin/AdminBlockchain";
 import AdminApprovals from "./pages/Admin/AdminApprovals";
 import AdminReports from "./pages/Admin/AdminReports";
 import AdminPublishResults from "./pages/Admin/AdminPublishResults";
+import AdminAuditLogs from "./pages/Admin/AdminAuditLogs";
+
+
 
 
 /* STAFF */
@@ -74,7 +77,7 @@ function App() {
             </ProtectedRoute>
           }
         >
-          <Route path="dashboard" element={<AdminHome />} />
+          <Route path="/admin/dashboard" element={<AdminHome />} />
           <Route path="exams" element={<AdminExamManagement />} />
           <Route path="approvals" element={<AdminApprovals />} />
           <Route path="/admin/users" element={<AdminUserManagement />} />
@@ -82,6 +85,8 @@ function App() {
           <Route path="profile" element={<AdminProfile />} />
           <Route path="reports" element={<AdminReports />} />
           <Route path="publish-results" element={<AdminPublishResults />} />
+          <Route path="/admin/audit-logs" element={<AdminAuditLogs />} />
+          
         </Route>
 
 

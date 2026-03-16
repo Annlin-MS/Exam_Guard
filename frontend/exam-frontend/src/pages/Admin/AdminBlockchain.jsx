@@ -11,6 +11,7 @@ const AdminBlockchain = () => {
   const [resultVerify, setResultVerify] = useState(null);
   const [resultVerifying, setResultVerifying] = useState(false);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchStatus(); }, []);
 
   const fetchStatus = async () => {
@@ -38,7 +39,6 @@ const AdminBlockchain = () => {
     }
   };
 
-  // ← NEW handler for result verification
   const handleVerifyResult = async () => {
     if (!resultExamId) return;
     setResultVerifying(true);
@@ -98,7 +98,9 @@ const AdminBlockchain = () => {
                 {status.connected ? "Connected" : "Disconnected"}
               </div>
               <div style={{ fontSize:11, color:"rgba(26,26,46,0.4)", marginTop:4 }}>Ganache Network</div>
-              {status.connected && <div style={{ width:8, height:8, borderRadius:"50%", background:"#00C9A7", margin:"10px auto 0", animation:"pulse 2s infinite" }} />}
+              {status.connected && (
+                <div style={{ width:8, height:8, borderRadius:"50%", background:"#00C9A7", margin:"10px auto 0", animation:"pulse 2s infinite" }} />
+              )}
             </div>
 
             {/* Block Number */}
@@ -148,7 +150,6 @@ const AdminBlockchain = () => {
             </button>
           </div>
 
-          {/* Verify Result */}
           {verifyResult && (
             <div style={{ padding:20, borderRadius:12, background: verifyResult.status === "VERIFIED" ? "rgba(0,201,167,0.06)" : "rgba(255,107,107,0.06)", border: `1px solid ${verifyResult.status === "VERIFIED" ? "rgba(0,201,167,0.25)" : "rgba(255,107,107,0.25)"}`, animation:"fadeUp 0.3s ease" }}>
               <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
@@ -162,7 +163,7 @@ const AdminBlockchain = () => {
           )}
         </div>
 
-        {/* ── NEW: Verify Result Integrity ── */}
+        {/* Verify Result Integrity */}
         <div className="fade-card" style={{ background:"#fff", border:"1px solid rgba(26,26,46,0.08)", borderRadius:16, padding:24, marginBottom:20, animationDelay:"0.15s" }}>
           <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700, marginBottom:6 }}>📊 Verify Result Integrity</div>
           <div style={{ fontSize:13, color:"rgba(26,26,46,0.5)", marginBottom:20 }}>
@@ -183,7 +184,6 @@ const AdminBlockchain = () => {
             </button>
           </div>
 
-          {/* Result Verify Output */}
           {resultVerify && (
             <div style={{ animation:"fadeUp 0.3s ease" }}>
               {resultVerify.error ? (
@@ -197,6 +197,7 @@ const AdminBlockchain = () => {
                 </div>
               ) : (
                 <div style={{ padding:20, borderRadius:12, background: resultVerify.all_valid ? "rgba(0,201,167,0.06)" : "rgba(255,107,107,0.06)", border:`1px solid ${resultVerify.all_valid ? "rgba(0,201,167,0.25)" : "rgba(255,107,107,0.25)"}` }}>
+
                   {/* Summary */}
                   <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
                     <span style={{ fontSize:24 }}>{resultVerify.all_valid ? "✅" : "⚠️"}</span>
@@ -212,40 +213,59 @@ const AdminBlockchain = () => {
 
                   {/* Per Student Results */}
                   <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                    {resultVerify.results?.map((r, i) => (
-                      <div key={i} style={{ padding:"14px 16px", background: r.is_valid ? "rgba(0,201,167,0.04)" : "rgba(255,107,107,0.04)", border:`1px solid ${r.is_valid ? "rgba(0,201,167,0.15)" : "rgba(255,107,107,0.2)"}`, borderRadius:10 }}>
-                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-                          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                            <div style={{ width:32, height:32, borderRadius:8, background:"rgba(108,99,255,0.08)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>👨‍🎓</div>
-                            <div>
-                              <div style={{ fontSize:13, fontWeight:600 }}>{r.student_name}</div>
-                              <div style={{ fontSize:11, color:"rgba(26,26,46,0.45)" }}>Score: {r.score}</div>
+                    {resultVerify.results?.map((r, i) => {
+                      const valid = !r.tampered;
+                      return (
+                        <div key={i} style={{ padding:"14px 16px", background: valid ? "rgba(0,201,167,0.04)" : "rgba(255,107,107,0.04)", border:`1px solid ${valid ? "rgba(0,201,167,0.15)" : "rgba(255,107,107,0.2)"}`, borderRadius:10 }}>
+                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                              <div style={{ width:32, height:32, borderRadius:8, background:"rgba(108,99,255,0.08)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>👨‍🎓</div>
+                              <div>
+                                <div style={{ fontSize:13, fontWeight:600 }}>{r.student}</div>
+                                <div style={{ fontSize:11, color:"rgba(26,26,46,0.45)" }}>Roll: {r.roll_number} · Score: {r.score}/{r.total_marks} · {r.percentage}%</div>
+                              </div>
+                            </div>
+                            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                              <span style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:20, background: r.is_published ? "rgba(0,201,167,0.1)" : "rgba(255,209,102,0.1)", color: r.is_published ? "#00C9A7" : "#FFD166" }}>
+                                {r.is_published ? "✅ Published" : "⏳ Pending"}
+                              </span>
+                              <span style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:20, background: valid ? "rgba(0,201,167,0.1)" : "rgba(255,107,107,0.1)", color: valid ? "#00C9A7" : "#FF6B6B" }}>
+                                {valid ? "✅ Valid" : "❌ Tampered!"}
+                              </span>
                             </div>
                           </div>
-                          <span style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:20, background: r.is_valid ? "rgba(0,201,167,0.1)" : "rgba(255,107,107,0.1)", color: r.is_valid ? "#00C9A7" : "#FF6B6B" }}>
-                            {r.is_valid ? "✅ Valid" : "❌ Tampered!"}
-                          </span>
-                        </div>
-                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                          <div style={{ padding:"8px 10px", background:"rgba(26,26,46,0.03)", borderRadius:8 }}>
-                            <div style={{ fontSize:9, fontWeight:700, color:"rgba(26,26,46,0.4)", letterSpacing:"0.06em", marginBottom:4 }}>STORED HASH (DB)</div>
-                            <div className="hash-text" style={{ color:"#6C63FF", fontSize:10 }}>{r.stored_hash?.substring(0,40)}...</div>
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+                            <div style={{ padding:"8px 10px", background:"rgba(26,26,46,0.03)", borderRadius:8 }}>
+                              <div style={{ fontSize:9, fontWeight:700, color:"rgba(26,26,46,0.4)", letterSpacing:"0.06em", marginBottom:4 }}>STORED HASH (DB)</div>
+                              <div className="hash-text" style={{ color:"#6C63FF", fontSize:10 }}>{r.stored_hash?.substring(0,40)}...</div>
+                            </div>
+                            <div style={{ padding:"8px 10px", background:"rgba(26,26,46,0.03)", borderRadius:8, border:`1px solid ${r.db_match ? "rgba(0,201,167,0.15)" : "rgba(255,107,107,0.15)"}` }}>
+                              <div style={{ fontSize:9, fontWeight:700, color:"rgba(26,26,46,0.4)", letterSpacing:"0.06em", marginBottom:4 }}>
+                                RECOMPUTED HASH <span style={{ color: r.db_match ? "#00C9A7" : "#FF6B6B" }}>{r.db_match ? "✓" : "✗"}</span>
+                              </div>
+                              <div className="hash-text" style={{ color: r.db_match ? "#00C9A7" : "#FF6B6B", fontSize:10 }}>{r.recomputed_hash?.substring(0,40)}...</div>
+                            </div>
+                            <div style={{ padding:"8px 10px", background:"rgba(26,26,46,0.03)", borderRadius:8, border:`1px solid ${r.chain_match ? "rgba(0,201,167,0.15)" : "rgba(255,107,107,0.15)"}` }}>
+                              <div style={{ fontSize:9, fontWeight:700, color:"rgba(26,26,46,0.4)", letterSpacing:"0.06em", marginBottom:4 }}>
+                                BLOCKCHAIN HASH <span style={{ color: r.chain_match ? "#00C9A7" : "#FF6B6B" }}>{r.chain_match ? "✓" : "✗"}</span>
+                              </div>
+                              <div className="hash-text" style={{ color: r.chain_match ? "#00C9A7" : "#FF6B6B", fontSize:10 }}>
+                                {r.chain_hash && !r.chain_hash.startsWith("Blockchain") ? `${r.chain_hash.substring(0,40)}...` : (r.chain_hash || "—")}
+                              </div>
+                            </div>
                           </div>
-                          <div style={{ padding:"8px 10px", background:"rgba(26,26,46,0.03)", borderRadius:8 }}>
-                            <div style={{ fontSize:9, fontWeight:700, color:"rgba(26,26,46,0.4)", letterSpacing:"0.06em", marginBottom:4 }}>REGENERATED HASH</div>
-                            <div className="hash-text" style={{ color: r.is_valid ? "#00C9A7" : "#FF6B6B", fontSize:10 }}>{r.regenerated_hash?.substring(0,40)}...</div>
-                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
+
                 </div>
               )}
             </div>
           )}
         </div>
 
-        {/* How it Works — unchanged */}
+        {/* How it Works */}
         <div className="fade-card" style={{ background:"#fff", border:"1px solid rgba(26,26,46,0.08)", borderRadius:16, padding:24, animationDelay:"0.2s" }}>
           <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700, marginBottom:20 }}>⚙️ How Blockchain Security Works</div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16 }}>

@@ -32,7 +32,14 @@ const AdminPublishResults = () => {
   const [detailLoading, setDetailLoading]     = useState(false);
   const [publishing, setPublishing]           = useState(false);
   const [toast, setToast]                     = useState(null);
+  const [unattemptedData, setUnattemptedData] = useState(null);
+  const [unaDept, setUnaDept]                 = useState(null);
+  const [unaSem, setUnaSem]                   = useState(null);
+  const [unaExam, setUnaExam]                 = useState(null);
+  const [unaDetail, setUnaDetail]             = useState(null);
+  const [unaDetailLoading, setUnaDetailLoading] = useState(false);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchAll(); }, []);
 
   const fetchAll = async () => {
@@ -53,9 +60,14 @@ const AdminPublishResults = () => {
   const fetchExamResults = async (examId) => {
     setDetailLoading(true);
     setExamData(null);
+    setUnattemptedData(null);
     try {
-      const res = await api.get(`/api/admin/exams/${examId}/results/`);
-      setExamData(res.data);
+      const [resultsRes, unaRes] = await Promise.all([
+        api.get(`/api/admin/exams/${examId}/results/`),
+        api.get(`/api/admin/exams/${examId}/unattempted/`),
+      ]);
+      setExamData(resultsRes.data);
+      setUnattemptedData(unaRes.data);
     } catch (err) {
       showToast("Failed to load results", "error");
     } finally {
@@ -63,32 +75,64 @@ const AdminPublishResults = () => {
     }
   };
 
+  const fetchUnaDetail = async (examId) => {
+    setUnaDetailLoading(true);
+    setUnaDetail(null);
+    try {
+      const res = await api.get(`/api/admin/exams/${examId}/unattempted/`);
+      setUnaDetail(res.data);
+    } catch (e) { console.error(e); }
+    finally { setUnaDetailLoading(false); }
+  };
+
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  // ── Derived data ──
+  // ── Check if exam is still ongoing using selectedExam from allExams ──
+  const isExamOngoing = () => {
+    if (!selectedExam) return false;
+    const examDate      = selectedExam.exam_date;
+    const startTime     = selectedExam.start_time;
+    const durationMins  = selectedExam.duration_minutes || 0;
+    if (!examDate || !startTime) return false;
+    const examEnd = new Date(`${examDate}T${startTime}`);
+    examEnd.setMinutes(examEnd.getMinutes() + durationMins);
+    return new Date() < examEnd;
+  };
+
+  const getTimeLeft = () => {
+    if (!selectedExam) return 0;
+    const examDate      = selectedExam.exam_date;
+    const startTime     = selectedExam.start_time;
+    const durationMins  = selectedExam.duration_minutes || 0;
+    if (!examDate || !startTime) return 0;
+    const examEnd = new Date(`${examDate}T${startTime}`);
+    examEnd.setMinutes(examEnd.getMinutes() + durationMins);
+    return Math.max(0, Math.ceil((examEnd - new Date()) / 60000));
+  };
+
   const departments = [...new Set([
     ...allExams.map(e => e.department),
     ...allStudents.map(s => s.department).filter(Boolean),
   ])].filter(d => d && d !== "—");
 
-  const semestersForDept = selectedDept
+  const semestersForDept = (dept) => dept
     ? [...new Set([
         ...allExams
-          .filter(e => selectedDept === "ALL" || e.department === selectedDept)
+          .filter(e => dept === "ALL" || e.department === dept)
           .map(e => e.semester || "ALL"),
         ...allStudents
-          .filter(s => selectedDept === "ALL" || s.department === selectedDept)
+          .filter(s => dept === "ALL" || s.department === dept)
           .map(s => s.semester).filter(Boolean),
       ])].sort()
     : [];
 
-  const examsForFilter = allExams.filter(e => {
-    if (!selectedDept) return false;
-    const deptMatch = selectedDept === "ALL" || e.department === selectedDept;
-    const semMatch  = !selectedSem || selectedSem === "ALL" || e.semester === selectedSem;
+  const examsForFilter = (dept, sem) => allExams.filter(e => {
+    if (!dept) return false;
+    const deptMatch = dept === "ALL" || e.department === dept;
+    const semMatch  = !sem || sem === "ALL" || e.semester === sem;
     return deptMatch && semMatch;
   });
 
@@ -104,6 +148,7 @@ const AdminPublishResults = () => {
     setSelectedSem(null);
     setSelectedExam(null);
     setExamData(null);
+    setUnattemptedData(null);
     setExpandedStudent(null);
   };
 
@@ -111,6 +156,7 @@ const AdminPublishResults = () => {
     setSelectedSem(sem);
     setSelectedExam(null);
     setExamData(null);
+    setUnattemptedData(null);
     setExpandedStudent(null);
   };
 
@@ -119,7 +165,6 @@ const AdminPublishResults = () => {
     fetchExamResults(exam.id);
   };
 
-  // ✅ Publish ALL students of selected exam at once
   const handlePublishAll = async () => {
     if (!selectedExam) return;
     if (!window.confirm(
@@ -150,26 +195,23 @@ const AdminPublishResults = () => {
     return "F";
   };
 
-  // ── Shared Dept + Sem selector ──
-  const DeptSemSelector = () => (
+  const DeptSemSelector = ({ dept, onDept, sem, onSem }) => (
     <>
-      {/* Step 1 — Department */}
       <div className="fade-up" style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", marginBottom: 16, border: "1px solid rgba(26,26,46,0.08)" }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(26,26,46,0.4)", letterSpacing: "0.1em", marginBottom: 14 }}>
           STEP 1 — SELECT DEPARTMENT
         </div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          {departments.map(dept => {
-            const isSelected   = selectedDept === dept;
-            const examCount    = allExams.filter(e => e.department === dept).length;
-            const studentCount = allStudents.filter(s => s.department === dept).length;
+          {departments.map(d => {
+            const isSelected   = dept === d;
+            const examCount    = allExams.filter(e => e.department === d).length;
+            const studentCount = allStudents.filter(s => s.department === d).length;
             return (
-              <button key={dept} className="sel-btn"
-                onClick={() => handleDeptSelect(dept)}
+              <button key={d} className="sel-btn" onClick={() => onDept(d)}
                 style={{ padding: "14px 20px", borderRadius: 14, border: isSelected ? "2px solid #6C63FF" : "1px solid rgba(26,26,46,0.1)", background: isSelected ? "rgba(108,99,255,0.08)" : "#fff", textAlign: "left", minWidth: 150, cursor: "pointer" }}>
-                <div style={{ fontSize: 24, marginBottom: 6 }}>{DEPT_ICONS[dept] || "🏛️"}</div>
+                <div style={{ fontSize: 24, marginBottom: 6 }}>{DEPT_ICONS[d] || "🏛️"}</div>
                 <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 13, fontWeight: 700, color: isSelected ? "#6C63FF" : "#1a1a2e" }}>
-                  {DEPT_LABELS[dept] || dept}
+                  {DEPT_LABELS[d] || d}
                 </div>
                 <div style={{ fontSize: 11, color: "rgba(26,26,46,0.4)", marginTop: 4, display: "flex", gap: 8 }}>
                   <span>📝 {examCount}</span>
@@ -181,30 +223,27 @@ const AdminPublishResults = () => {
         </div>
       </div>
 
-      {/* Step 2 — Semester */}
-      {selectedDept && (
+      {dept && (
         <div className="fade-up" style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", marginBottom: 16, border: "1px solid rgba(26,26,46,0.08)" }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(26,26,46,0.4)", letterSpacing: "0.1em", marginBottom: 14 }}>
             STEP 2 — SELECT SEMESTER
             <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 500, color: "#6C63FF" }}>
-              {DEPT_LABELS[selectedDept]}
+              {DEPT_LABELS[dept] || dept}
             </span>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button className="sel-btn"
-              onClick={() => handleSemSelect("ALL")}
-              style={{ padding: "10px 20px", borderRadius: 10, border: selectedSem === "ALL" ? "2px solid #6C63FF" : "1px solid rgba(26,26,46,0.1)", background: selectedSem === "ALL" ? "rgba(108,99,255,0.08)" : "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 600, color: selectedSem === "ALL" ? "#6C63FF" : "#1a1a2e", cursor: "pointer" }}>
+            <button className="sel-btn" onClick={() => onSem("ALL")}
+              style={{ padding: "10px 20px", borderRadius: 10, border: sem === "ALL" ? "2px solid #6C63FF" : "1px solid rgba(26,26,46,0.1)", background: sem === "ALL" ? "rgba(108,99,255,0.08)" : "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 600, color: sem === "ALL" ? "#6C63FF" : "#1a1a2e", cursor: "pointer" }}>
               All Semesters
             </button>
-            {semestersForDept.filter(s => s !== "ALL" && s).map(sem => {
-              const isSelected   = selectedSem === sem;
-              const examCount    = allExams.filter(e => (selectedDept === "ALL" || e.department === selectedDept) && e.semester === sem).length;
-              const studentCount = allStudents.filter(s => (selectedDept === "ALL" || s.department === selectedDept) && s.semester === sem).length;
+            {semestersForDept(dept).filter(s => s !== "ALL" && s).map(s => {
+              const isSel        = sem === s;
+              const examCount    = allExams.filter(e => (dept === "ALL" || e.department === dept) && e.semester === s).length;
+              const studentCount = allStudents.filter(st => (dept === "ALL" || st.department === dept) && st.semester === s).length;
               return (
-                <button key={sem} className="sel-btn"
-                  onClick={() => handleSemSelect(sem)}
-                  style={{ padding: "10px 20px", borderRadius: 10, border: isSelected ? "2px solid #6C63FF" : "1px solid rgba(26,26,46,0.1)", background: isSelected ? "rgba(108,99,255,0.08)" : "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 600, color: isSelected ? "#6C63FF" : "#1a1a2e", cursor: "pointer", textAlign: "left" }}>
-                  Semester {sem}
+                <button key={s} className="sel-btn" onClick={() => onSem(s)}
+                  style={{ padding: "10px 20px", borderRadius: 10, border: isSel ? "2px solid #6C63FF" : "1px solid rgba(26,26,46,0.1)", background: isSel ? "rgba(108,99,255,0.08)" : "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 600, color: isSel ? "#6C63FF" : "#1a1a2e", cursor: "pointer", textAlign: "left" }}>
+                  Semester {s}
                   <div style={{ fontSize: 10, color: "rgba(26,26,46,0.4)", marginTop: 2, fontWeight: 400 }}>
                     {examCount} exams · {studentCount} students
                   </div>
@@ -224,6 +263,8 @@ const AdminPublishResults = () => {
   );
 
   const unpublishedCount = examData ? examData.total_attempted - examData.total_published : 0;
+  const ongoing          = isExamOngoing();
+  const timeLeft         = getTimeLeft();
 
   return (
     <>
@@ -252,14 +293,15 @@ const AdminPublishResults = () => {
         {/* Header */}
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 28, fontWeight: 800, marginBottom: 4 }}>📋 Results & Students</div>
-          <div style={{ fontSize: 13, color: "rgba(26,26,46,0.45)" }}>Publish exam results and view students by department</div>
+          <div style={{ fontSize: 13, color: "rgba(26,26,46,0.45)" }}>Publish exam results · view students · track unattempted</div>
         </div>
 
         {/* Tabs */}
         <div style={{ display: "flex", gap: 4, marginBottom: 24, background: "rgba(26,26,46,0.04)", padding: 4, borderRadius: 12, width: "fit-content" }}>
           {[
-            { key: "publish",  label: "📢 Publish Results"  },
-            { key: "students", label: "👨‍🎓 Students Overview" },
+            { key: "publish",     label: "📢 Publish Results"   },
+            { key: "students",    label: "👨‍🎓 Students Overview" },
+            { key: "unattempted", label: "😴 Unattempted"       },
           ].map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: activeTab === tab.key ? "#fff" : "transparent", color: activeTab === tab.key ? "#1a1a2e" : "rgba(26,26,46,0.5)", fontWeight: activeTab === tab.key ? 700 : 500, fontSize: 13, fontFamily: "'DM Sans',sans-serif", cursor: "pointer", boxShadow: activeTab === tab.key ? "0 2px 8px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s" }}>
@@ -281,7 +323,10 @@ const AdminPublishResults = () => {
               </div>
             ) : (
               <>
-                <DeptSemSelector />
+                <DeptSemSelector
+                  dept={selectedDept} onDept={handleDeptSelect}
+                  sem={selectedSem}   onSem={handleSemSelect}
+                />
 
                 {/* Step 3 — Exam */}
                 {selectedSem && (
@@ -292,28 +337,23 @@ const AdminPublishResults = () => {
                         {DEPT_LABELS[selectedDept]} {selectedSem !== "ALL" ? `· Sem ${selectedSem}` : ""}
                       </span>
                     </div>
-                    {examsForFilter.length === 0 ? (
+                    {examsForFilter(selectedDept, selectedSem).length === 0 ? (
                       <div style={{ padding: 20, textAlign: "center", color: "rgba(26,26,46,0.4)", fontSize: 13 }}>
                         No exams for this filter
                       </div>
                     ) : (
                       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                        {examsForFilter.map(exam => {
+                        {examsForFilter(selectedDept, selectedSem).map(exam => {
                           const isSelected = selectedExam?.id === exam.id;
                           return (
-                            <button key={exam.id} className="sel-btn"
-                              onClick={() => handleExamSelect(exam)}
+                            <button key={exam.id} className="sel-btn" onClick={() => handleExamSelect(exam)}
                               style={{ padding: "14px 20px", borderRadius: 12, border: isSelected ? "2px solid #FF6B6B" : "1px solid rgba(26,26,46,0.1)", background: isSelected ? "rgba(255,107,107,0.06)" : "#fff", textAlign: "left", minWidth: 170, cursor: "pointer" }}>
                               <div style={{ fontSize: 22, marginBottom: 6 }}>📝</div>
                               <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 13, fontWeight: 700, color: isSelected ? "#FF6B6B" : "#1a1a2e" }}>
                                 {exam.exam_name}
                               </div>
-                              <div style={{ fontSize: 11, color: "rgba(26,26,46,0.4)", marginTop: 4 }}>
-                                📅 {exam.exam_date}
-                              </div>
-                              <div style={{ fontSize: 11, color: "rgba(26,26,46,0.4)", marginTop: 2 }}>
-                                👨‍🎓 {exam.enrolled_students_count} enrolled
-                              </div>
+                              <div style={{ fontSize: 11, color: "rgba(26,26,46,0.4)", marginTop: 4 }}>📅 {exam.exam_date}</div>
+                              <div style={{ fontSize: 11, color: "rgba(26,26,46,0.4)", marginTop: 2 }}>👨‍🎓 {exam.enrolled_students_count} enrolled</div>
                             </button>
                           );
                         })}
@@ -326,17 +366,17 @@ const AdminPublishResults = () => {
                 {selectedExam && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, fontSize: 12, color: "rgba(26,26,46,0.5)" }}>
                     <span style={{ cursor: "pointer", color: "#6C63FF" }}
-                      onClick={() => { setSelectedDept(null); setSelectedSem(null); setSelectedExam(null); setExamData(null); }}>
+                      onClick={() => { setSelectedDept(null); setSelectedSem(null); setSelectedExam(null); setExamData(null); setUnattemptedData(null); }}>
                       All Depts
                     </span>
                     <span>›</span>
                     <span style={{ cursor: "pointer", color: "#6C63FF" }}
-                      onClick={() => { setSelectedSem(null); setSelectedExam(null); setExamData(null); }}>
+                      onClick={() => { setSelectedSem(null); setSelectedExam(null); setExamData(null); setUnattemptedData(null); }}>
                       {DEPT_LABELS[selectedDept]}
                     </span>
                     <span>›</span>
                     <span style={{ cursor: "pointer", color: "#6C63FF" }}
-                      onClick={() => { setSelectedExam(null); setExamData(null); }}>
+                      onClick={() => { setSelectedExam(null); setExamData(null); setUnattemptedData(null); }}>
                       {selectedSem !== "ALL" ? `Semester ${selectedSem}` : "All Semesters"}
                     </span>
                     <span>›</span>
@@ -350,69 +390,100 @@ const AdminPublishResults = () => {
                     <div style={{ textAlign: "center", padding: 40, color: "rgba(26,26,46,0.4)" }}>Loading results...</div>
                   ) : examData && (
                     <>
-                      {/* Exam Summary + Publish Button */}
-                      <div className="fade-up" style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", marginBottom: 16, border: "1px solid rgba(26,26,46,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
-                        <div>
-                          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 22, fontWeight: 800, marginBottom: 8 }}>
-                            {examData.exam_name}
+                      {/* ── Exam Summary Card ── */}
+                      <div className="fade-up" style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", marginBottom: 16, border: "1px solid rgba(26,26,46,0.08)" }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+                          <div>
+                            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 22, fontWeight: 800, marginBottom: 12 }}>
+                              {examData.exam_name}
+                            </div>
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                              {[
+                                { icon: "📅", label: examData.exam_date,                                                            color: "rgba(26,26,46,0.55)" },
+                                { icon: "🏛️", label: DEPT_LABELS[selectedDept] || selectedDept,                                     color: "rgba(26,26,46,0.55)" },
+                                { icon: "👨‍🎓", label: `${examData.total_attempted} attempted`,                                      color: "#6C63FF"             },
+                                { icon: "✅", label: `${examData.total_published} published`,                                        color: "#00C9A7"             },
+                                { icon: "⏳", label: `${unpublishedCount} pending`,                                                  color: "#FFD166"             },
+                                { icon: "❌", label: `${unattemptedData ? unattemptedData.total_unattempted : "..."} not attempted`, color: "#FF6B6B"             },
+                              ].map((item, i) => (
+                                <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 8, background: "rgba(26,26,46,0.03)", border: "1px solid rgba(26,26,46,0.06)" }}>
+                                  <span style={{ fontSize: 13 }}>{item.icon}</span>
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: item.color }}>{item.label}</span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                          <div style={{ display: "flex", gap: 20, fontSize: 13, color: "rgba(26,26,46,0.55)", flexWrap: "wrap" }}>
-                            <span>📅 {examData.exam_date}</span>
-                            <span>🏛️ {DEPT_LABELS[selectedDept] || selectedDept}</span>
-                            {selectedSem !== "ALL" && <span>📚 Semester {selectedSem}</span>}
-                            <span>👨‍🎓 {examData.total_attempted} attempted</span>
-                            <span style={{ color: "#00C9A7", fontWeight: 600 }}>✅ {examData.total_published} published</span>
-                            <span style={{ color: "#FFD166", fontWeight: 600 }}>⏳ {unpublishedCount} pending</span>
-                          </div>
+
+                          {/* ── Publish Button / Blocking UI ── */}
+                          {ongoing ? (
+                            <div style={{ padding: "14px 20px", borderRadius: 14, background: "rgba(255,209,102,0.08)", border: "1px solid rgba(255,209,102,0.3)", color: "#FFD166", fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 12, whiteSpace: "nowrap" }}>
+                              <span style={{ fontSize: 24 }}>⏳</span>
+                              <div>
+                                <div style={{ fontWeight: 700, fontSize: 14 }}>Exam In Progress</div>
+                                <div style={{ fontSize: 11, fontWeight: 400, marginTop: 3, color: "rgba(255,209,102,0.8)" }}>
+                                  Publishing blocked · ~{timeLeft} min remaining
+                                </div>
+                              </div>
+                            </div>
+                          ) : unpublishedCount > 0 ? (
+                            <button className="act-btn" onClick={handlePublishAll} disabled={publishing}
+                              style={{ padding: "14px 32px", borderRadius: 14, border: "none", background: "linear-gradient(135deg,#6C63FF,#5a54d4)", color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", boxShadow: "0 4px 20px rgba(108,99,255,0.4)", opacity: publishing ? 0.7 : 1, whiteSpace: "nowrap" }}>
+                              {publishing ? "⏳ Publishing..." : `🚀 Publish Results (${unpublishedCount} students)`}
+                            </button>
+                          ) : examData.total_attempted > 0 ? (
+                            <div style={{ padding: "12px 24px", borderRadius: 12, background: "rgba(0,201,167,0.08)", border: "1px solid rgba(0,201,167,0.2)", color: "#00C9A7", fontWeight: 700, fontSize: 14 }}>
+                              ✅ All Results Published!
+                            </div>
+                          ) : null}
                         </div>
 
-                        {/* ✅ Only ONE publish button — publishes entire exam */}
-                        {unpublishedCount > 0 ? (
-                          <button className="act-btn" onClick={handlePublishAll} disabled={publishing}
-                            style={{ padding: "14px 32px", borderRadius: 14, border: "none", background: "linear-gradient(135deg,#6C63FF,#5a54d4)", color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", boxShadow: "0 4px 20px rgba(108,99,255,0.4)", opacity: publishing ? 0.7 : 1, whiteSpace: "nowrap" }}>
-                            {publishing ? "⏳ Publishing..." : `🚀 Publish Results (${unpublishedCount} students)`}
-                          </button>
-                        ) : examData.total_attempted > 0 ? (
-                          <div style={{ padding: "12px 24px", borderRadius: 12, background: "rgba(0,201,167,0.08)", border: "1px solid rgba(0,201,167,0.2)", color: "#00C9A7", fontWeight: 700, fontSize: 14 }}>
-                            ✅ All Results Published!
+                        {/* ── Mini unattempted preview ── */}
+                        {unattemptedData && unattemptedData.total_unattempted > 0 && (
+                          <div style={{ marginTop: 16, padding: "12px 16px", borderRadius: 10, background: "rgba(255,107,107,0.05)", border: "1px solid rgba(255,107,107,0.15)" }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#FF6B6B", marginBottom: 8 }}>
+                              😴 {unattemptedData.total_unattempted} student(s) did not attempt this exam:
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {unattemptedData.unattempted.slice(0, 8).map(s => (
+                                <span key={s.id} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, background: "rgba(255,107,107,0.1)", color: "#FF6B6B", fontWeight: 600 }}>
+                                  {s.roll_number !== "—" ? s.roll_number : s.username}
+                                </span>
+                              ))}
+                              {unattemptedData.total_unattempted > 8 && (
+                                <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, background: "rgba(26,26,46,0.06)", color: "rgba(26,26,46,0.5)", fontWeight: 600 }}>
+                                  +{unattemptedData.total_unattempted - 8} more
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        ) : null}
+                        )}
                       </div>
 
-                      {/* Results Table — view only, no action column */}
+                      {/* Results Table */}
                       <div className="fade-up" style={{ background: "#fff", borderRadius: 16, overflow: "hidden", border: "1px solid rgba(26,26,46,0.08)" }}>
                         <div style={{ padding: "16px 24px", borderBottom: "1px solid rgba(26,26,46,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700 }}>🏆 Student Results</div>
                           <div style={{ fontSize: 12, color: "rgba(26,26,46,0.4)" }}>{examData.students?.length || 0} students</div>
                         </div>
-
-                        {/* Table Header */}
                         <div style={{ display: "grid", gridTemplateColumns: "50px 2fr 1fr 1fr 70px 120px", gap: 12, padding: "10px 24px", background: "rgba(26,26,46,0.02)", borderBottom: "1px solid rgba(26,26,46,0.06)" }}>
                           {["RANK", "STUDENT", "SCORE", "PERCENTAGE", "GRADE", "STATUS"].map(h => (
                             <div key={h} style={{ fontSize: 10, fontWeight: 700, color: "rgba(26,26,46,0.4)", letterSpacing: "0.08em" }}>{h}</div>
                           ))}
                         </div>
-
                         {!examData.students || examData.students.length === 0 ? (
                           <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(26,26,46,0.4)" }}>
                             <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
                             <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700 }}>No students completed this exam yet</div>
-                            <div style={{ fontSize: 12, marginTop: 6 }}>Results appear once students submit</div>
                           </div>
                         ) : (
                           examData.students.map((std, i) => {
-                            const gc     = getGradeColor(std.percentage);
-                            const passed = std.percentage >= 40;
+                            const gc = getGradeColor(std.percentage);
                             return (
                               <div key={i} className="std-row"
                                 style={{ display: "grid", gridTemplateColumns: "50px 2fr 1fr 1fr 70px 120px", gap: 12, padding: "14px 24px", borderBottom: "1px solid rgba(26,26,46,0.04)", alignItems: "center" }}>
-
-                                {/* Rank */}
                                 <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 800, color: i===0?"#FFD166":i===1?"#94a3b8":i===2?"#CD7F32":"rgba(26,26,46,0.3)" }}>
                                   {i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}
                                 </div>
-
-                                {/* Student */}
                                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                                   <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(108,99,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>👨‍🎓</div>
                                   <div>
@@ -420,24 +491,16 @@ const AdminPublishResults = () => {
                                     <div style={{ fontSize: 11, color: "rgba(26,26,46,0.4)" }}>Roll: {std.roll_number}</div>
                                   </div>
                                 </div>
-
-                                {/* Score */}
                                 <div style={{ fontSize: 13, fontWeight: 600 }}>{std.score} / {std.total_marks}</div>
-
-                                {/* Percentage */}
                                 <div>
                                   <div style={{ height: 4, background: "rgba(26,26,46,0.08)", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
                                     <div style={{ height: "100%", background: gc, borderRadius: 2, width: `${std.percentage}%`, transition: "width 0.5s ease" }} />
                                   </div>
                                   <div style={{ fontSize: 12, fontWeight: 700, color: gc }}>{std.percentage}%</div>
                                 </div>
-
-                                {/* Grade */}
                                 <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 800, color: gc }}>
                                   {getGrade(std.percentage)}
                                 </div>
-
-                                {/* Status — no action button */}
                                 <span style={{ fontSize: 11, fontWeight: 700, padding: "5px 12px", borderRadius: 20, background: std.is_published ? "rgba(0,201,167,0.1)" : "rgba(255,209,102,0.1)", color: std.is_published ? "#00C9A7" : "#FFD166", width: "fit-content" }}>
                                   {std.is_published ? "✅ Published" : "⏳ Pending"}
                                 </span>
@@ -459,31 +522,30 @@ const AdminPublishResults = () => {
         ══════════════════════════════ */}
         {activeTab === "students" && (
           <>
-            <DeptSemSelector />
-
+            <DeptSemSelector
+              dept={selectedDept} onDept={handleDeptSelect}
+              sem={selectedSem}   onSem={handleSemSelect}
+            />
             {!selectedDept && (
               <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(26,26,46,0.4)" }}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>🏛️</div>
                 <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 700 }}>Select a department to view students</div>
               </div>
             )}
-
             {selectedDept && !selectedSem && (
               <div style={{ textAlign: "center", padding: "40px 20px", color: "rgba(26,26,46,0.4)" }}>
                 <div style={{ fontSize: 36, marginBottom: 10 }}>📚</div>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>Now select a semester</div>
               </div>
             )}
-
             {selectedSem && (
               <>
-                {/* Stats */}
                 <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 20 }}>
                   {[
-                    { label: "Total Students", value: studentsForFilter.length,                              color: "#6C63FF", icon: "👨‍🎓" },
-                    { label: "Active",          value: studentsForFilter.filter(s => s.is_active).length,    color: "#00C9A7", icon: "✅" },
-                    { label: "Inactive",        value: studentsForFilter.filter(s => !s.is_active).length,   color: "#FF6B6B", icon: "🚫" },
-                    { label: "Exams in Filter", value: examsForFilter.length,                                color: "#FFD166", icon: "📝" },
+                    { label: "Total Students", value: studentsForFilter.length,                            color: "#6C63FF", icon: "👨‍🎓" },
+                    { label: "Active",          value: studentsForFilter.filter(s => s.is_active).length,  color: "#00C9A7", icon: "✅"   },
+                    { label: "Inactive",        value: studentsForFilter.filter(s => !s.is_active).length, color: "#FF6B6B", icon: "🚫"   },
+                    { label: "Exams in Filter", value: examsForFilter(selectedDept, selectedSem).length,   color: "#FFD166", icon: "📝"   },
                   ].map((s, i) => (
                     <div key={i} style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: `1px solid ${s.color}22` }}>
                       <div style={{ fontSize: 22, marginBottom: 8 }}>{s.icon}</div>
@@ -492,8 +554,6 @@ const AdminPublishResults = () => {
                     </div>
                   ))}
                 </div>
-
-                {/* Students Table */}
                 <div className="fade-up" style={{ background: "#fff", borderRadius: 16, overflow: "hidden", border: "1px solid rgba(26,26,46,0.08)" }}>
                   <div style={{ padding: "16px 24px", borderBottom: "1px solid rgba(26,26,46,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700 }}>
@@ -501,67 +561,50 @@ const AdminPublishResults = () => {
                     </div>
                     <div style={{ fontSize: 12, color: "rgba(26,26,46,0.4)" }}>{studentsForFilter.length} students</div>
                   </div>
-
-                  {/* Table Header */}
                   <div style={{ display: "grid", gridTemplateColumns: "40px 2fr 1fr 1fr 1fr 90px 30px", gap: 12, padding: "10px 24px", background: "rgba(26,26,46,0.02)", borderBottom: "1px solid rgba(26,26,46,0.06)" }}>
                     {["#", "STUDENT", "ROLL NO", "DEPT", "SEM", "STATUS", ""].map(h => (
                       <div key={h} style={{ fontSize: 10, fontWeight: 700, color: "rgba(26,26,46,0.4)", letterSpacing: "0.08em" }}>{h}</div>
                     ))}
                   </div>
-
                   {studentsForFilter.length === 0 ? (
                     <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(26,26,46,0.4)" }}>
                       <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
                       <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700 }}>No students found</div>
-                      <div style={{ fontSize: 12, marginTop: 6 }}>No students in this department/semester</div>
                     </div>
                   ) : (
                     studentsForFilter.map((stu, i) => {
                       const isExpanded = expandedStudent === stu.id;
                       return (
                         <div key={stu.id}>
-                          {/* Row */}
                           <div className="stu-row"
                             onClick={() => setExpandedStudent(isExpanded ? null : stu.id)}
                             style={{ display: "grid", gridTemplateColumns: "40px 2fr 1fr 1fr 1fr 90px 30px", gap: 12, padding: "14px 24px", borderBottom: isExpanded ? "none" : "1px solid rgba(26,26,46,0.04)", alignItems: "center", background: isExpanded ? "rgba(108,99,255,0.03)" : "transparent" }}>
-
                             <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(26,26,46,0.3)" }}>#{i+1}</div>
-
                             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                              <div style={{ width: 34, height: 34, borderRadius: 10, background: stu.is_active ? "rgba(0,201,167,0.1)" : "rgba(255,107,107,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
-                                👨‍🎓
-                              </div>
+                              <div style={{ width: 34, height: 34, borderRadius: 10, background: stu.is_active ? "rgba(0,201,167,0.1)" : "rgba(255,107,107,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>👨‍🎓</div>
                               <div>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: stu.is_active ? "#1a1a2e" : "rgba(26,26,46,0.4)" }}>
-                                  {stu.username}
-                                </div>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: stu.is_active ? "#1a1a2e" : "rgba(26,26,46,0.4)" }}>{stu.username}</div>
                                 <div style={{ fontSize: 11, color: "rgba(26,26,46,0.4)" }}>{stu.email || "—"}</div>
                               </div>
                             </div>
-
                             <div style={{ fontSize: 13, fontWeight: 500 }}>{stu.roll_number || "—"}</div>
                             <div style={{ fontSize: 12, color: "rgba(26,26,46,0.6)" }}>{DEPT_LABELS[stu.department] || stu.department}</div>
                             <div style={{ fontSize: 12, color: "rgba(26,26,46,0.6)" }}>Sem {stu.semester || "—"}</div>
-
                             <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, background: stu.is_active ? "rgba(0,201,167,0.1)" : "rgba(255,107,107,0.1)", color: stu.is_active ? "#00C9A7" : "#FF6B6B", width: "fit-content" }}>
                               {stu.is_active ? "✅ Active" : "🚫 Inactive"}
                             </span>
-
                             <div style={{ fontSize: 16, color: "rgba(26,26,46,0.35)", textAlign: "center", transition: "transform 0.2s", transform: isExpanded ? "rotate(90deg)" : "none" }}>›</div>
                           </div>
-
-                          {/* Expanded — enrolled exams */}
                           {isExpanded && (
                             <div className="fade-up" style={{ padding: "16px 24px 20px 80px", background: "rgba(108,99,255,0.02)", borderBottom: "1px solid rgba(26,26,46,0.06)" }}>
                               <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 13, fontWeight: 700, marginBottom: 12, color: "#6C63FF" }}>
-                                📚 Enrolled Exams — {DEPT_LABELS[selectedDept]} {selectedSem !== "ALL" ? `Sem ${selectedSem}` : ""}
+                                📚 Enrolled Exams
                               </div>
-
-                              {examsForFilter.length === 0 ? (
+                              {examsForFilter(selectedDept, selectedSem).length === 0 ? (
                                 <div style={{ fontSize: 13, color: "rgba(26,26,46,0.4)", padding: "12px 0" }}>No exams in this filter</div>
                               ) : (
                                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                                  {examsForFilter.map(exam => (
+                                  {examsForFilter(selectedDept, selectedSem).map(exam => (
                                     <div key={exam.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", background: "#fff", borderRadius: 10, border: "1px solid rgba(26,26,46,0.08)" }}>
                                       <div style={{ fontSize: 18 }}>📝</div>
                                       <div style={{ flex: 1 }}>
@@ -570,25 +613,12 @@ const AdminPublishResults = () => {
                                           📅 {exam.exam_date} · ⏰ {exam.start_time} · ⏱️ {exam.duration_minutes} mins
                                         </div>
                                       </div>
-                                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                        <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: "rgba(108,99,255,0.08)", color: "#6C63FF" }}>
-                                          🔒 Locked
-                                        </span>
-                                        <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, background: "rgba(26,26,46,0.05)", color: "rgba(26,26,46,0.5)" }}>
-                                          👨‍🎓 {exam.enrolled_students_count} enrolled
-                                        </span>
-                                      </div>
+                                      <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: "rgba(108,99,255,0.08)", color: "#6C63FF" }}>🔒 Locked</span>
+                                      <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, background: "rgba(26,26,46,0.05)", color: "rgba(26,26,46,0.5)" }}>👨‍🎓 {exam.enrolled_students_count} enrolled</span>
                                     </div>
                                   ))}
                                 </div>
                               )}
-
-                              <div style={{ display: "flex", gap: 20, marginTop: 12, fontSize: 12, color: "rgba(26,26,46,0.5)" }}>
-                                <span>📝 {examsForFilter.length} exam(s) in this semester</span>
-                                <span style={{ color: stu.is_active ? "#00C9A7" : "#FF6B6B", fontWeight: 600 }}>
-                                  {stu.is_active ? "✅ Account Active" : "🚫 Account Inactive"}
-                                </span>
-                              </div>
                             </div>
                           )}
                         </div>
@@ -597,6 +627,129 @@ const AdminPublishResults = () => {
                   )}
                 </div>
               </>
+            )}
+          </>
+        )}
+
+        {/* ══════════════════════════════
+            TAB 3 — UNATTEMPTED
+        ══════════════════════════════ */}
+        {activeTab === "unattempted" && (
+          <>
+            <DeptSemSelector
+              dept={unaDept} onDept={(d) => { setUnaDept(d); setUnaSem(null); setUnaExam(null); setUnaDetail(null); }}
+              sem={unaSem}   onSem={(s) => { setUnaSem(s); setUnaExam(null); setUnaDetail(null); }}
+            />
+            {unaSem && (
+              <div className="fade-up" style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", marginBottom: 16, border: "1px solid rgba(26,26,46,0.08)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(26,26,46,0.4)", letterSpacing: "0.1em", marginBottom: 14 }}>
+                  STEP 3 — SELECT EXAM
+                </div>
+                {examsForFilter(unaDept, unaSem).length === 0 ? (
+                  <div style={{ padding: 20, textAlign: "center", color: "rgba(26,26,46,0.4)", fontSize: 13 }}>No exams for this filter</div>
+                ) : (
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    {examsForFilter(unaDept, unaSem).map(exam => {
+                      const isSel = unaExam?.id === exam.id;
+                      return (
+                        <button key={exam.id} className="sel-btn"
+                          onClick={() => { setUnaExam(exam); fetchUnaDetail(exam.id); }}
+                          style={{ padding: "14px 20px", borderRadius: 12, border: isSel ? "2px solid #FF6B6B" : "1px solid rgba(26,26,46,0.1)", background: isSel ? "rgba(255,107,107,0.06)" : "#fff", textAlign: "left", minWidth: 170, cursor: "pointer" }}>
+                          <div style={{ fontSize: 22, marginBottom: 6 }}>📝</div>
+                          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 13, fontWeight: 700, color: isSel ? "#FF6B6B" : "#1a1a2e" }}>{exam.exam_name}</div>
+                          <div style={{ fontSize: 11, color: "rgba(26,26,46,0.4)", marginTop: 4 }}>📅 {exam.exam_date}</div>
+                          <div style={{ fontSize: 11, color: "rgba(26,26,46,0.4)", marginTop: 2 }}>👨‍🎓 {exam.enrolled_students_count} enrolled</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            {unaExam && (
+              unaDetailLoading ? (
+                <div style={{ textAlign: "center", padding: 40, color: "rgba(26,26,46,0.4)" }}>Loading...</div>
+              ) : unaDetail && (
+                <>
+                  <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, marginBottom: 20 }}>
+                    {[
+                      { label: "Total Enrolled", value: unaDetail.total_enrolled,    color: "#6C63FF", icon: "👨‍🎓" },
+                      { label: "Attempted",       value: unaDetail.total_attempted,   color: "#00C9A7", icon: "✅"   },
+                      { label: "Did Not Attempt", value: unaDetail.total_unattempted, color: "#FF6B6B", icon: "😴"   },
+                    ].map((s, i) => (
+                      <div key={i} style={{ background: "#fff", borderRadius: 14, padding: "20px 24px", border: `1px solid ${s.color}22`, display: "flex", alignItems: "center", gap: 16 }}>
+                        <div style={{ width: 50, height: 50, borderRadius: 14, background: s.color + "12", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{s.icon}</div>
+                        <div>
+                          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 30, fontWeight: 800, color: s.color }}>{s.value}</div>
+                          <div style={{ fontSize: 12, color: "rgba(26,26,46,0.45)", marginTop: 2 }}>{s.label}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="fade-up" style={{ background: "#fff", borderRadius: 14, padding: "16px 20px", marginBottom: 20, border: "1px solid rgba(26,26,46,0.08)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12, fontWeight: 600 }}>
+                      <span style={{ color: "#00C9A7" }}>✅ Attempted: {unaDetail.total_attempted}</span>
+                      <span style={{ color: "#FF6B6B" }}>😴 Not attempted: {unaDetail.total_unattempted}</span>
+                    </div>
+                    <div style={{ height: 10, background: "rgba(26,26,46,0.06)", borderRadius: 5, overflow: "hidden" }}>
+                      <div style={{ height: "100%", background: "linear-gradient(90deg,#00C9A7,#6C63FF)", borderRadius: 5, width: `${unaDetail.total_enrolled > 0 ? (unaDetail.total_attempted / unaDetail.total_enrolled) * 100 : 0}%`, transition: "width 0.8s ease" }} />
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 11, color: "rgba(26,26,46,0.4)", textAlign: "right" }}>
+                      {unaDetail.total_enrolled > 0 ? Math.round((unaDetail.total_attempted / unaDetail.total_enrolled) * 100) : 0}% participation rate
+                    </div>
+                  </div>
+                  {unaDetail.total_unattempted === 0 ? (
+                    <div className="fade-up" style={{ textAlign: "center", padding: "60px 20px", background: "#fff", borderRadius: 16, border: "1px solid rgba(0,201,167,0.2)" }}>
+                      <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+                      <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 18, fontWeight: 700, color: "#00C9A7" }}>All students attempted!</div>
+                      <div style={{ fontSize: 13, color: "rgba(26,26,46,0.4)", marginTop: 8 }}>100% participation for this exam.</div>
+                    </div>
+                  ) : (
+                    <div className="fade-up" style={{ background: "#fff", borderRadius: 16, overflow: "hidden", border: "1px solid rgba(255,107,107,0.15)" }}>
+                      <div style={{ padding: "14px 24px", background: "rgba(255,107,107,0.04)", borderBottom: "1px solid rgba(255,107,107,0.1)", display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 18 }}>😴</span>
+                        <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700, color: "#FF6B6B" }}>
+                          Did Not Attempt ({unaDetail.total_unattempted})
+                        </span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "40px 2fr 1fr 1fr 1fr", gap: 12, padding: "10px 24px", background: "rgba(26,26,46,0.02)", borderBottom: "1px solid rgba(26,26,46,0.06)" }}>
+                        {["#", "STUDENT", "ROLL NO", "DEPT", "SEM"].map(h => (
+                          <div key={h} style={{ fontSize: 10, fontWeight: 700, color: "rgba(26,26,46,0.4)", letterSpacing: "0.08em" }}>{h}</div>
+                        ))}
+                      </div>
+                      {unaDetail.unattempted.map((s, i) => (
+                        <div key={s.id} style={{ display: "grid", gridTemplateColumns: "40px 2fr 1fr 1fr 1fr", gap: 12, padding: "14px 24px", borderBottom: "1px solid rgba(26,26,46,0.04)", alignItems: "center" }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(26,26,46,0.3)" }}>#{i+1}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(255,107,107,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>😴</div>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600 }}>{s.username}</div>
+                              <div style={{ fontSize: 11, color: "rgba(26,26,46,0.4)" }}>{s.email || "—"}</div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{s.roll_number}</div>
+                          <div>
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: "rgba(0,201,167,0.08)", color: "#00C9A7" }}>
+                              {s.department}
+                            </span>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: "rgba(108,99,255,0.08)", color: "#6C63FF" }}>
+                              Sem {s.semester}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )
+            )}
+            {!unaDept && (
+              <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(26,26,46,0.4)" }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>😴</div>
+                <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 700 }}>Select dept → semester → exam to see who didn't attempt</div>
+              </div>
             )}
           </>
         )}

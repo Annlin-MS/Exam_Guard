@@ -9,12 +9,15 @@ const AdminUserManagement = ({ defaultTab = "staff" }) => {
   const [toast, setToast] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
+  const [deptFilter, setDeptFilter] = useState("ALL");
+  const [semFilter, setSemFilter] = useState("ALL");
   const [createdUser, setCreatedUser] = useState(null);
   const [form, setForm] = useState({
     username: "", email: "", password: "", role: "STAFF",
     department: "CS", semester: "1", roll_number: ""
   });
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchAll(); }, []);
 
   const fetchAll = async () => {
@@ -68,10 +71,13 @@ const AdminUserManagement = ({ defaultTab = "staff" }) => {
   };
 
   const currentList = activeTab === "staff" ? staff : students;
-  const filtered = currentList.filter(u =>
-    u.username.toLowerCase().includes(search.toLowerCase()) ||
-    u.email.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = currentList.filter(u => {
+    const matchSearch = u.username.toLowerCase().includes(search.toLowerCase()) ||
+      u.email.toLowerCase().includes(search.toLowerCase());
+    const matchDept = activeTab === "staff" || deptFilter === "ALL" || u.department === deptFilter;
+    const matchSem  = activeTab === "staff" || semFilter === "ALL" || String(u.semester) === semFilter;
+    return matchSearch && matchDept && matchSem;
+  });
 
   if (loading) return (
     <div style={{ padding:40, textAlign:"center", color:"rgba(26,26,46,0.5)", fontFamily:"'DM Sans',sans-serif" }}>Loading...</div>
@@ -113,10 +119,10 @@ const AdminUserManagement = ({ defaultTab = "staff" }) => {
         {/* Stats */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:24 }}>
           {[
-            { label:"Total Staff",      value:staff.length,                         icon:"👨‍🏫", color:"#6C63FF" },
-            { label:"Active Staff",     value:staff.filter(s=>s.is_active).length,  icon:"🟢",   color:"#00C9A7" },
-            { label:"Total Students",   value:students.length,                      icon:"👨‍🎓", color:"#FFD166" },
-            { label:"Active Students",  value:students.filter(s=>s.is_active).length, icon:"✅", color:"#FF6B6B" },
+            { label:"Total Staff",      value:staff.length,                           icon:"👨‍🏫", color:"#6C63FF" },
+            { label:"Active Staff",     value:staff.filter(s=>s.is_active).length,    icon:"🟢",   color:"#00C9A7" },
+            { label:"Total Students",   value:students.length,                        icon:"👨‍🎓", color:"#FFD166" },
+            { label:"Active Students",  value:students.filter(s=>s.is_active).length, icon:"✅",   color:"#FF6B6B" },
           ].map((c,i) => (
             <div key={i} style={{ background:"#fff", border:`1px solid ${c.color}22`, borderRadius:14, padding:"18px 20px", animation:`fadeUp 0.3s ease ${i*0.07}s both` }}>
               <div style={{ fontSize:22, marginBottom:8 }}>{c.icon}</div>
@@ -126,20 +132,76 @@ const AdminUserManagement = ({ defaultTab = "staff" }) => {
           ))}
         </div>
 
+        {/* Department Stats — only when students tab active */}
+        {activeTab === "students" && (
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:20 }}>
+            {Object.entries(
+              students.reduce((acc, s) => {
+                const d = s.department || "—";
+                acc[d] = (acc[d] || 0) + 1;
+                return acc;
+              }, {})
+            ).map(([dept, count]) => (
+              <div key={dept}
+                onClick={() => setDeptFilter(deptFilter === dept ? "ALL" : dept)}
+                style={{ padding:"8px 16px", borderRadius:20, background: deptFilter === dept ? "#6C63FF" : "rgba(108,99,255,0.06)", border: deptFilter === dept ? "1px solid #6C63FF" : "1px solid rgba(108,99,255,0.15)", color: deptFilter === dept ? "#fff" : "#6C63FF", fontSize:12, fontWeight:700, cursor:"pointer", transition:"all 0.15s" }}>
+                {DEPT_LABELS[dept] || dept} · {count}
+              </div>
+            ))}
+            {deptFilter !== "ALL" && (
+              <div onClick={() => { setDeptFilter("ALL"); setSemFilter("ALL"); }}
+                style={{ padding:"8px 16px", borderRadius:20, background:"rgba(255,107,107,0.08)", border:"1px solid rgba(255,107,107,0.2)", color:"#FF6B6B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                ✕ Clear Filter
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Table */}
         <div style={{ background:"#fff", border:"1px solid rgba(26,26,46,0.08)", borderRadius:16, overflow:"hidden" }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"16px 20px", borderBottom:"1px solid rgba(26,26,46,0.06)" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"16px 20px", borderBottom:"1px solid rgba(26,26,46,0.06)", flexWrap:"wrap", gap:12 }}>
             <div style={{ display:"flex", gap:4, background:"rgba(26,26,46,0.05)", borderRadius:10, padding:4 }}>
               {[["staff","👨‍🏫 Staff"],["students","👨‍🎓 Students"]].map(([key,label]) => (
-                <button key={key} className="act-btn" onClick={() => { setActiveTab(key); setSearch(""); }}
+                <button key={key} className="act-btn"
+                  onClick={() => { setActiveTab(key); setSearch(""); setDeptFilter("ALL"); setSemFilter("ALL"); }}
                   style={{ padding:"8px 20px", borderRadius:8, border:"none", fontSize:13, fontWeight:600, fontFamily:"'DM Sans',sans-serif", background:activeTab===key ? "#6C63FF" : "transparent", color:activeTab===key ? "#fff" : "rgba(26,26,46,0.5)" }}>
                   {label}
                 </button>
               ))}
             </div>
-            <input placeholder="🔍 Search..." value={search} onChange={e => setSearch(e.target.value)}
-              style={{ padding:"9px 14px", border:"1px solid rgba(26,26,46,0.15)", borderRadius:8, fontSize:13, fontFamily:"'DM Sans',sans-serif", width:260 }} />
+
+            <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+              {activeTab === "students" && (
+                <>
+                  <select value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setSemFilter("ALL"); }}
+                    style={{ padding:"9px 12px", border:"1px solid rgba(26,26,46,0.15)", borderRadius:8, fontSize:13, fontFamily:"'DM Sans',sans-serif", color:"#1a1a2e", background:"#fff", cursor:"pointer" }}>
+                    <option value="ALL">All Departments</option>
+                    {[["CS","Computer Science"],["ECE","Electronics"],["MECH","Mechanical"],["CIVIL","Civil"],["MBA","MBA"]].map(([val,label]) => (
+                      <option key={val} value={val}>{label}</option>
+                    ))}
+                  </select>
+                  <select value={semFilter} onChange={e => setSemFilter(e.target.value)}
+                    style={{ padding:"9px 12px", border:"1px solid rgba(26,26,46,0.15)", borderRadius:8, fontSize:13, fontFamily:"'DM Sans',sans-serif", color:"#1a1a2e", background:"#fff", cursor:"pointer" }}>
+                    <option value="ALL">All Semesters</option>
+                    {["1","2","3","4","5","6","7","8"].map(s => (
+                      <option key={s} value={s}>Sem {s}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+              <input placeholder="🔍 Search..." value={search} onChange={e => setSearch(e.target.value)}
+                style={{ padding:"9px 14px", border:"1px solid rgba(26,26,46,0.15)", borderRadius:8, fontSize:13, fontFamily:"'DM Sans',sans-serif", width:200 }} />
+            </div>
           </div>
+
+          {/* Filtered count indicator */}
+          {activeTab === "students" && (deptFilter !== "ALL" || semFilter !== "ALL") && (
+            <div style={{ padding:"10px 20px", background:"rgba(108,99,255,0.04)", borderBottom:"1px solid rgba(108,99,255,0.08)", fontSize:12, color:"#6C63FF", fontWeight:600 }}>
+              Showing {filtered.length} student(s)
+              {deptFilter !== "ALL" && ` · ${DEPT_LABELS[deptFilter] || deptFilter}`}
+              {semFilter !== "ALL" && ` · Semester ${semFilter}`}
+            </div>
+          )}
 
           {/* Table Header */}
           <div style={{ display:"grid", gridTemplateColumns: activeTab==="students" ? "2fr 2fr 1fr 1fr 1fr 1fr" : "2fr 2fr 1fr 1fr", gap:16, padding:"12px 20px", background:"rgba(26,26,46,0.02)", borderBottom:"1px solid rgba(26,26,46,0.05)" }}>
@@ -155,6 +217,11 @@ const AdminUserManagement = ({ defaultTab = "staff" }) => {
             <div style={{ textAlign:"center", padding:"60px 20px", color:"rgba(26,26,46,0.4)" }}>
               <div style={{ fontSize:40, marginBottom:12 }}>🔍</div>
               <div style={{ fontSize:15, fontWeight:600 }}>No {activeTab} found</div>
+              {(deptFilter !== "ALL" || semFilter !== "ALL") && (
+                <div style={{ fontSize:13, marginTop:8, color:"rgba(26,26,46,0.35)" }}>
+                  Try changing the department or semester filter
+                </div>
+              )}
             </div>
           ) : (
             filtered.map((user, i) => (
@@ -226,7 +293,6 @@ const AdminUserManagement = ({ defaultTab = "staff" }) => {
             </div>
 
             <div style={{ display:"flex", flexDirection:"column", gap:14, marginBottom:24 }}>
-              {/* Common Fields */}
               {[
                 ["Username *","text","username","e.g. john_doe"],
                 ["Email *","email","email","john@school.com"],
@@ -240,7 +306,6 @@ const AdminUserManagement = ({ defaultTab = "staff" }) => {
                 </div>
               ))}
 
-              {/* Student-only Fields */}
               {form.role === "STUDENT" && (
                 <>
                   <div style={{ display:"flex", flexDirection:"column", gap:6 }}>

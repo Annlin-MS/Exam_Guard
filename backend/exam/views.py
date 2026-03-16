@@ -187,7 +187,7 @@ def submit_exam(request, exam_id):
     student_exam.end_time     = timezone.now()
     student_exam.save()
 
-    result_string = f"{exam.id}|{user.id}|{score}|{student_exam.end_time.isoformat()}"
+    result_string = f"{exam.id}|{user.id}|{float(score)}"
     result_hash   = hashlib.sha256(result_string.encode()).hexdigest()
 
     student_hash = hashlib.sha256(str(user.id).encode()).hexdigest()
@@ -261,107 +261,6 @@ def create_question_paper(request):
 
 
 # -------------------------------------------------
-# API 5: LOCK QUESTION PAPER (Staff + Blockchain)
-# -------------------------------------------------
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def lock_question_paper(request, exam_id):
-    print(">>> LOCK API HIT <<<")
-    user = request.user
-
-    if user.role != 'STAFF':
-        return Response({'error': 'Only staff can lock question paper'}, status=403)
-
-    try:
-        exam = Exam.objects.get(id=exam_id)
-    except Exam.DoesNotExist:
-        return Response({'error': 'Exam not found'}, status=404)
-
-    if exam.assigned_staff_id != user.id:
-        return Response({'error': 'Not assigned to this exam'}, status=403)
-
-    if exam.workflow_status != 'APPROVED':
-        return Response({'error': 'Exam not approved by admin'}, status=400)
-
-    qp, created = QuestionPaper.objects.get_or_create(
-        exam=exam,
-        defaults={
-            'uploaded_by': user,
-            'question_hash': '',
-            'is_locked': False
-        }
-    )
-
-    if qp.is_locked:
-        return Response({'error': 'Question paper already locked'}, status=400)
-
-    questions = exam.questions.all().order_by('id')
-
-    if questions.count() != exam.total_questions_allowed:
-        return Response({
-            'error': f'Exam requires {exam.total_questions_allowed} questions. '
-                     f'Currently added: {questions.count()}'
-        }, status=400)
-
-    if not questions.exists():
-        return Response({'error': 'No questions found for this exam'}, status=400)
-
-    payload = []
-    for q in questions:
-        payload.append({
-            'id': q.id,
-            'question': q.question_text,
-            'options': {
-                'A': q.option_a,
-                'B': q.option_b,
-                'C': q.option_c,
-                'D': q.option_d,
-            },
-            'correct': q.correct_option
-        })
-
-    payload_json  = json.dumps(payload, sort_keys=True)
-    question_hash = hashlib.sha256(payload_json.encode()).hexdigest()
-    qp.question_hash = question_hash
-
-    start_ts = int(
-        timezone.make_aware(
-            timezone.datetime.combine(exam.exam_date, exam.start_time)
-        ).timestamp()
-    )
-    end_ts = start_ts + exam.duration_minutes * 60
-
-    try:
-        tx_hash = contract.functions.registerExam(
-            exam.id,
-            web3.to_bytes(hexstr="0x" + question_hash),
-            start_ts,
-            end_ts
-        ).transact()
-    except Exception as e:
-        return Response({'error': str(e)}, status=500)
-
-    qp.blockchain_tx_hash = tx_hash.hex()
-    qp.is_locked          = True
-    qp.locked_at          = timezone.now()
-    qp.save()
-
-    exam.workflow_status = 'LOCKED'
-    exam.save()
-
-    create_audit_log(
-        request.user,
-        'LOCK_PAPER',
-        f"Locked question paper for {exam.exam_name}"
-    )
-
-    return Response({
-        'message':            'Question paper locked successfully',
-        'blockchain_tx_hash': qp.blockchain_tx_hash
-    })
-
-
-# -------------------------------------------------
 # VERIFY QUESTION PAPER
 # -------------------------------------------------
 @api_view(['GET'])
@@ -426,7 +325,7 @@ def verify_result(request, exam_id, student_id):
     except Result.DoesNotExist:
         return Response({'error': 'Result record missing'}, status=404)
 
-    result_string = f"{exam_id}|{student_id}|{result.score}|{student_exam.end_time.isoformat()}"
+    result_string = f"{exam_id}|{student_id}|{float(result.score)}"
     local_hash    = hashlib.sha256(result_string.encode()).hexdigest()
     student_hash  = hashlib.sha256(str(student_id).encode()).hexdigest()
 
@@ -528,7 +427,8 @@ def submit_for_approval(request, exam_id):
     try:
         exam = Exam.objects.get(id=exam_id, assigned_staff=request.user)
 
-        if exam.workflow_status not in ['DRAFT', 'REJECTED']:
+        # ✅ Allow resubmit from APPROVED status too
+        if exam.workflow_status not in ['DRAFT', 'REJECTED', 'APPROVED']:
             return Response({'error': f'Cannot submit — status is {exam.workflow_status}'}, status=400)
 
         rejected_count = exam.questions.filter(status='REJECTED').count()
@@ -542,7 +442,10 @@ def submit_for_approval(request, exam_id):
                 'error': f'Need {exam.total_questions_allowed} questions. Have {active_count} active.'
             }, status=400)
 
-        exam.questions.filter(status='APPROVED').update(status='PENDING')
+        # ✅ Only reset PENDING questions — approved stay approved
+        exam.questions.filter(status='REJECTED').update(status='PENDING')
+
+        # ✅ Always move to SUBMITTED so admin re-reviews new questions
         exam.workflow_status = 'SUBMITTED'
         exam.save()
 
@@ -557,6 +460,124 @@ def submit_for_approval(request, exam_id):
     except Exam.DoesNotExist:
         return Response({'error': 'Exam not found'}, status=404)
 
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def lock_question_paper(request, exam_id):
+    print(">>> LOCK API HIT <<<")
+    user = request.user
+
+    if user.role != 'STAFF':
+        return Response({'error': 'Only staff can lock question paper'}, status=403)
+
+    try:
+        exam = Exam.objects.get(id=exam_id)
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+    if exam.assigned_staff_id != user.id:
+        return Response({'error': 'Not assigned to this exam'}, status=403)
+
+    if exam.workflow_status != 'APPROVED':
+        return Response({'error': 'Exam not approved by admin'}, status=400)
+
+    # ✅ Block lock if any questions are still PENDING review
+    pending_count = exam.questions.filter(status='PENDING').count()
+    if pending_count > 0:
+        return Response({
+            'error': f'Cannot lock — {pending_count} question(s) are still pending admin review. Wait for admin to approve them first.'
+        }, status=400)
+
+    # ✅ Block lock if any questions are still REJECTED
+    rejected_count = exam.questions.filter(status='REJECTED').count()
+    if rejected_count > 0:
+        return Response({
+            'error': f'Cannot lock — {rejected_count} question(s) are still rejected. Fix them and resubmit first.'
+        }, status=400)
+
+    # ✅ Block lock if not all questions are APPROVED
+    approved_count = exam.questions.filter(status='APPROVED').count()
+    if approved_count != exam.total_questions_allowed:
+        return Response({
+            'error': f'Cannot lock — only {approved_count} of {exam.total_questions_allowed} questions are approved.'
+        }, status=400)
+
+    qp, created = QuestionPaper.objects.get_or_create(
+        exam=exam,
+        defaults={
+            'uploaded_by': user,
+            'question_hash': '',
+            'is_locked': False
+        }
+    )
+
+    if qp.is_locked:
+        return Response({'error': 'Question paper already locked'}, status=400)
+
+    questions = exam.questions.filter(status='APPROVED').order_by('id')
+
+    if questions.count() != exam.total_questions_allowed:
+        return Response({
+            'error': f'Exam requires {exam.total_questions_allowed} questions. '
+                     f'Currently approved: {questions.count()}'
+        }, status=400)
+
+    if not questions.exists():
+        return Response({'error': 'No questions found for this exam'}, status=400)
+
+    payload = []
+    for q in questions:
+        payload.append({
+            'id': q.id,
+            'question': q.question_text,
+            'options': {
+                'A': q.option_a,
+                'B': q.option_b,
+                'C': q.option_c,
+                'D': q.option_d,
+            },
+            'correct': q.correct_option
+        })
+
+    payload_json  = json.dumps(payload, sort_keys=True)
+    question_hash = hashlib.sha256(payload_json.encode()).hexdigest()
+    qp.question_hash = question_hash
+
+    start_ts = int(
+        timezone.make_aware(
+            timezone.datetime.combine(exam.exam_date, exam.start_time)
+        ).timestamp()
+    )
+    end_ts = start_ts + exam.duration_minutes * 60
+
+    try:
+        tx_hash = contract.functions.registerExam(
+            exam.id,
+            web3.to_bytes(hexstr="0x" + question_hash),
+            start_ts,
+            end_ts
+        ).transact()
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+    qp.blockchain_tx_hash = tx_hash.hex()
+    qp.is_locked          = True
+    qp.locked_at          = timezone.now()
+    qp.save()
+
+    exam.workflow_status = 'LOCKED'
+    exam.save()
+
+    create_audit_log(
+        request.user,
+        'LOCK_PAPER',
+        f"Locked question paper for {exam.exam_name}"
+    )
+
+    return Response({
+        'message':            'Question paper locked successfully',
+        'blockchain_tx_hash': qp.blockchain_tx_hash
+    })
 
 # -------------------------------------------------
 # APPROVE EXAM
@@ -876,6 +897,21 @@ def reject_question(request, question_id):
         question.status           = 'REJECTED'
         question.rejection_reason = request.data.get('reason', 'No reason provided')
         question.save()
+
+        # ✅ Auto reject exam back to DRAFT if it was APPROVED
+        exam = question.exam
+        if exam.workflow_status == 'APPROVED':
+            exam.workflow_status = 'DRAFT'
+            exam.save()
+            create_audit_log(
+                request.user,
+                'REJECT_EXAM',
+                f"Exam '{exam.exam_name}' auto-rejected because question was rejected after approval"
+            )
+            return Response({
+                'message': 'Question rejected! Exam has been moved back to DRAFT — staff must fix and resubmit.'
+            })
+
         return Response({'message': 'Question rejected!'})
     except Question.DoesNotExist:
         return Response({'error': 'Question not found'}, status=404)
@@ -896,35 +932,50 @@ def staff_exam_results(request, exam_id):
         exam = Exam.objects.get(id=exam_id)
     except Exam.DoesNotExist:
         return Response({'error': 'Exam not found'}, status=404)
+    
+    # ✅ Staff can only view their own exam results
+    if request.user.role == 'STAFF' and exam.assigned_staff != request.user:
+        return Response({'error': 'You can only view results for your own exams'}, status=403)
 
     student_exams = StudentExam.objects.filter(
         exam=exam, status='SUBMITTED'
     ).select_related('student', 'student__profile')
 
     data = []
+
     for se in student_exams:
         profile = getattr(se.student, 'profile', None)
+
         try:
-            result      = Result.objects.get(student_exam=se)
-            total_marks = result.total_marks or (exam.total_questions_allowed * exam.marks_correct)
-            percentage  = result.percentage or (
-                round((result.score / total_marks) * 100, 1) if total_marks > 0 else 0
+            result = Result.objects.get(student_exam=se)
+
+            total_marks = result.total_marks or (
+                exam.total_questions_allowed * exam.marks_correct
             )
-            data.append({
-                'student_name': se.student.username,
-                'roll_number':  profile.roll_number if profile else '—',
-                'score':        result.score,
-                'total_marks':  total_marks,
-                'percentage':   percentage,
-                'result_hash':  result.result_hash,
-                'submitted_at': se.end_time,
-                'is_published': result.is_published,
-            })
+
+            percentage = result.percentage or (
+                round((result.score / total_marks) * 100, 1)
+                if total_marks > 0 else 0
+            )
+
+            if result.is_published:
+                data.append({
+                    'student_name': se.student.username,
+                    'roll_number': profile.roll_number if profile else '—',
+                    'score': result.score,
+                    'total_marks': total_marks,
+                    'percentage': percentage,
+                    'result_hash': result.result_hash,
+                    'submitted_at': se.end_time,
+                    'is_published': result.is_published,
+                })
+
         except Result.DoesNotExist:
             pass
 
     # Sort by percentage descending
     data.sort(key=lambda x: x['percentage'], reverse=True)
+
     return Response(data)
 
 
@@ -940,6 +991,27 @@ def publish_results(request, exam_id):
         exam = Exam.objects.get(id=exam_id)
     except Exam.DoesNotExist:
         return Response({'error': 'Exam not found'}, status=404)
+
+    # ✅ Block if any student is still IN_PROGRESS
+    active_exams = StudentExam.objects.filter(exam=exam, status='IN_PROGRESS')
+    if active_exams.exists():
+        return Response({
+            'error': f'Cannot publish yet — {active_exams.count()} student(s) are still attempting the exam.'
+        }, status=400)
+
+    # ✅ Block if exam duration has not ended yet
+    from datetime import datetime, timedelta
+    from django.utils import timezone
+    if exam.exam_date and exam.start_time:
+        exam_start = timezone.make_aware(
+            datetime.combine(exam.exam_date, exam.start_time)
+        )
+        exam_end = exam_start + timedelta(minutes=exam.duration_minutes or 0)
+        if timezone.now() < exam_end:
+            time_left = int((exam_end - timezone.now()).total_seconds() / 60)
+            return Response({
+                'error': f'Cannot publish yet — exam ends in {time_left} minute(s).'
+            }, status=400)
 
     student_exams = StudentExam.objects.filter(exam=exam, status='SUBMITTED')
     published     = 0
@@ -960,7 +1032,7 @@ def publish_results(request, exam_id):
             score       = max(0, score)
             total_marks = exam.total_questions_allowed * exam.marks_correct
             percentage  = round((score / total_marks) * 100, 1) if total_marks > 0 else 0
-            s           = f"{exam.id}|{se.student.id}|{score}|{se.end_time.isoformat() if se.end_time else ''}"
+            s           = f"{exam.id}|{se.student.id}|{float(score)}"
             result      = Result.objects.create(
                 student_exam    = se,
                 score           = score,
@@ -973,7 +1045,7 @@ def publish_results(request, exam_id):
             )
 
         if not result.result_hash:
-            s                  = f"{exam.id}|{se.student.id}|{result.score}|{se.end_time.isoformat() if se.end_time else ''}"
+            s                  = f"{exam.id}|{se.student.id}|{float(result.score)}"
             result.result_hash = hashlib.sha256(s.encode()).hexdigest()
 
         if not result.is_published:
@@ -982,9 +1054,9 @@ def publish_results(request, exam_id):
         result.save()
 
     AuditLog.objects.create(
-        user=request.user,
-        action_type='PUBLISH_RESULT',
-        description=f"Published all results for exam: {exam.exam_name} ({published} students)"
+        user        = request.user,
+        action_type = 'PUBLISH_RESULT',
+        description = f"Published all results for exam: {exam.exam_name} ({published} students)"
     )
 
     return Response({
@@ -1010,7 +1082,7 @@ def verify_result_hash(request, exam_id):
             try:
                 result        = Result.objects.get(student_exam=se)
                 # ✅ Use same format as submit_exam
-                data_str      = f"{exam.id}|{se.student.id}|{result.score}|{se.end_time.isoformat() if se.end_time else ''}"
+                data_str = f"{exam.id}|{se.student.id}|{float(result.score)}"
                 recomputed    = hashlib.sha256(data_str.encode()).hexdigest()
                 db_match      = recomputed == result.result_hash
 
@@ -1710,3 +1782,78 @@ def student_results(request):
             })
 
     return Response(results)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def exam_unattempted_students(request, exam_id):
+    if request.user.role not in ['ADMIN', 'STAFF']:
+        return Response({'error': 'Not allowed'}, status=403)
+    try:
+        exam = Exam.objects.get(id=exam_id)
+    except Exam.DoesNotExist:
+        return Response({'error': 'Exam not found'}, status=404)
+
+    # All enrolled students
+    enrolled = exam.enrolled_students.all()
+
+    # Students who started or submitted
+    attempted_ids = StudentExam.objects.filter(
+        exam=exam
+    ).values_list('student_id', flat=True)
+
+    # Unattempted = enrolled but never started
+    unattempted = enrolled.exclude(id__in=attempted_ids)
+
+    data = []
+    for s in unattempted:
+        profile = getattr(s, 'profile', None)
+        data.append({
+            'id':          s.id,
+            'username':    s.username,
+            'email':       s.email,
+            'department':  profile.department  if profile else '—',
+            'semester':    profile.semester    if profile else '—',
+            'roll_number': profile.roll_number if profile else '—',
+        })
+
+    return Response({
+        'exam_name':        exam.exam_name,
+        'total_enrolled':   enrolled.count(),
+        'total_attempted':  len(attempted_ids),
+        'total_unattempted':len(data),
+        'unattempted':      data,
+    })
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def debug_hash(request, exam_id):
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Only admin allowed'}, status=403)
+    
+    exam = Exam.objects.get(id=exam_id)
+    student_exams = StudentExam.objects.filter(exam=exam, status='SUBMITTED').select_related('student')
+    
+    debug = []
+    for se in student_exams:
+        try:
+            result = Result.objects.get(student_exam=se)
+            
+            # Show exactly what strings are being used
+            data_str = f"{exam.id}|{se.student.id}|{float(result.score)}|{se.end_time.isoformat() if se.end_time else ''}"
+            recomputed = hashlib.sha256(data_str.encode()).hexdigest()
+            
+            debug.append({
+                'student':        se.student.username,
+                'end_time_raw':   str(se.end_time),
+                'end_time_iso':   se.end_time.isoformat() if se.end_time else None,
+                'score_raw':      str(result.score),
+                'score_float':    str(float(result.score)),
+                'data_string':    data_str,
+                'recomputed':     recomputed,
+                'stored':         result.result_hash,
+                'match':          recomputed == result.result_hash,
+            })
+        except Result.DoesNotExist:
+            debug.append({'student': se.student.username, 'error': 'no result'})
+    
+    return Response(debug)    

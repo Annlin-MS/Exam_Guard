@@ -41,6 +41,8 @@ from .views import (
     admin_reports,
     get_publish_results,
     student_results,
+    exam_unattempted_students,
+    debug_hash,
 
 
 )
@@ -82,6 +84,8 @@ urlpatterns = [
     path('exams/<int:exam_id>/submit-for-approval/', submit_for_approval),
     path('exams/<int:exam_id>/approve/', approve_exam),
     path('admin/exams/<int:exam_id>/results/',get_publish_results),
+    path('admin/exams/<int:exam_id>/unattempted/', exam_unattempted_students),
+    path('admin/exams/<int:exam_id>/debug-hash/', debug_hash),
         # -------------------------
     # ADMIN MANAGEMENT APIs
     # -------------------------
