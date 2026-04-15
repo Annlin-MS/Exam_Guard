@@ -18,14 +18,12 @@ const AttemptExam = () => {
   const answersRef = useRef({});
   const autoSubmitRef = useRef(false);
 
-  // Keep answersRef in sync with answers state
   useEffect(() => {
     answersRef.current = answers;
   }, [answers]);
 
   useEffect(() => {
     startAndFetch();
-    // Tab switch detection
     const handleVisibility = () => {
       if (document.hidden) {
         alert("⚠️ Warning: Do not switch tabs during exam!");
@@ -39,33 +37,48 @@ const AttemptExam = () => {
   }, []);
 
   const startAndFetch = async () => {
-  try {
-    await api.post(`/api/exams/${examId}/start/`);
+    try {
+      await api.post(`/api/exams/${examId}/start/`);
 
-    // ✅ fetch-paper returns questions + duration together
-    const res = await api.get(`/api/exams/${examId}/fetch-paper/`);
-    setQuestions(res.data.questions);
-    setExamName(res.data.exam);
+      const res = await api.get(`/api/exams/${examId}/fetch-paper/`);
+      console.log("FETCH PAPER RESPONSE:", res.data);
+      console.log("QUESTIONS:", res.data.questions);
+      
+      setQuestions(res.data.questions);
+      setExamName(res.data.exam);
 
-    // ✅ Get duration directly from fetch-paper response
-    const duration = res.data.duration_minutes || 60;
-    const remaining = Math.max(parseInt(duration) * 60, 60);
-    setTimeLeft(remaining);
-    startTimer(remaining);
+      // ✅ Use fixed end_time so late joiners don't get extra time
+      let remaining;
+      if (res.data.end_time) {
+        const endTime = new Date(res.data.end_time).getTime();
+        const now = Date.now();
+        remaining = Math.floor((endTime - now) / 1000);
 
-  } catch (err) {
-    console.error("Failed to load exam:", err);
-  } finally {
-    setLoading(false);
-  }
-};
+        if (remaining <= 0) {
+          alert("This exam has already ended.");
+          navigate("/student/exams");
+          return;
+        }
+      } else {
+        // Fallback if end_time not available
+        remaining = Math.max(parseInt(res.data.duration_minutes || 60) * 60, 60);
+      }
+
+      setTimeLeft(remaining);
+      startTimer(remaining);
+
+    } catch (err) {
+      console.error("Failed to load exam:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const startTimer = (seconds) => {
     timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(timerRef.current);
-          // ✅ FIX 2 — Auto submit using answersRef to avoid stale closure
           if (!autoSubmitRef.current) {
             autoSubmitRef.current = true;
             submitAnswers();
@@ -85,7 +98,6 @@ const AttemptExam = () => {
     return `${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
   };
 
-  // ✅ FIX 2 — Uses answersRef instead of answers state
   const submitAnswers = async () => {
     setSubmitting(true);
     clearInterval(timerRef.current);
@@ -110,7 +122,6 @@ const AttemptExam = () => {
     setMarked(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
   };
 
-  // Manual submit from button
   const handleSubmit = async () => {
     setShowConfirm(false);
     await submitAnswers();
@@ -144,7 +155,7 @@ const AttemptExam = () => {
 
       <div style={{ minHeight:"100vh", background:"#fff8f0", fontFamily:"'DM Sans',sans-serif" }}>
 
-        {/* ── TOP BAR ── */}
+        {/* TOP BAR */}
         <div style={{ background:"#fff", borderBottom:"1px solid rgba(255,107,107,0.15)", padding:"0 28px", height:64, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100 }}>
           <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:800, color:"#2e1a1a" }}>
             {examName}
@@ -167,12 +178,11 @@ const AttemptExam = () => {
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 280px", gap:20, padding:24, maxWidth:1200, margin:"0 auto" }}>
 
-          {/* ── QUESTION AREA ── */}
+          {/* QUESTION AREA */}
           <div>
             {q && (
               <div key={current} className="fade-up" style={{ background:"#fff", borderRadius:16, padding:28, border:"1px solid rgba(255,107,107,0.08)" }}>
 
-                {/* Question Header */}
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
                   <span style={{ fontSize:12, fontWeight:700, color:"rgba(46,26,26,0.4)", letterSpacing:"0.08em" }}>
                     QUESTION {current+1} OF {questions.length}
@@ -183,17 +193,14 @@ const AttemptExam = () => {
                   </button>
                 </div>
 
-                {/* Progress Bar */}
                 <div style={{ height:4, background:"rgba(255,107,107,0.1)", borderRadius:2, marginBottom:24, overflow:"hidden" }}>
                   <div style={{ height:"100%", background:"#FF6B6B", borderRadius:2, width:`${((current+1)/questions.length)*100}%`, transition:"width 0.3s" }} />
                 </div>
 
-                {/* Question Text */}
                 <div style={{ fontFamily:"'Syne',sans-serif", fontSize:18, fontWeight:700, color:"#2e1a1a", marginBottom:24, lineHeight:1.6 }}>
                   {q.question_text}
                 </div>
 
-                {/* Options */}
                 <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
                   {["A","B","C","D"].map(opt => {
                     const isSelected = answers[q.id] === opt;
@@ -212,7 +219,6 @@ const AttemptExam = () => {
                   })}
                 </div>
 
-                {/* Prev / Next */}
                 <div style={{ display:"flex", justifyContent:"space-between", marginTop:24 }}>
                   <button className="nav-q" onClick={() => setCurrent(p => Math.max(0,p-1))} disabled={current===0}
                     style={{ padding:"10px 24px", borderRadius:10, background: current===0 ? "rgba(46,26,26,0.04)" : "rgba(255,107,107,0.08)", color: current===0 ? "rgba(46,26,26,0.3)" : "#FF6B6B", fontSize:14 }}>
@@ -227,14 +233,13 @@ const AttemptExam = () => {
             )}
           </div>
 
-          {/* ── QUESTION NAVIGATOR ── */}
+          {/* QUESTION NAVIGATOR */}
           <div>
             <div style={{ background:"#fff", borderRadius:16, padding:20, border:"1px solid rgba(255,107,107,0.08)", position:"sticky", top:84 }}>
               <div style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, marginBottom:16 }}>
                 📊 Question Navigator
               </div>
 
-              {/* Grid */}
               <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:16 }}>
                 {questions.map((q, i) => (
                   <button key={i} className="nav-q" onClick={() => setCurrent(i)}
@@ -244,13 +249,12 @@ const AttemptExam = () => {
                 ))}
               </div>
 
-              {/* Legend */}
               <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:16 }}>
                 {[
-                  ["#FF6B6B",              "Current"   ],
-                  ["#00C9A7",              "Answered"  ],
-                  ["#FFD166",              "Marked"    ],
-                  ["rgba(46,26,26,0.3)",   "Not visited"],
+                  ["#FF6B6B",            "Current"    ],
+                  ["#00C9A7",            "Answered"   ],
+                  ["#FFD166",            "Marked"     ],
+                  ["rgba(46,26,26,0.3)", "Not visited"],
                 ].map(([color, label]) => (
                   <div key={label} style={{ display:"flex", alignItems:"center", gap:8, fontSize:11, color:"rgba(46,26,26,0.5)" }}>
                     <div style={{ width:12, height:12, borderRadius:3, background:color }} />
@@ -259,7 +263,6 @@ const AttemptExam = () => {
                 ))}
               </div>
 
-              {/* Answered Count */}
               <div style={{ padding:"12px", background:"rgba(255,107,107,0.05)", borderRadius:10, textAlign:"center", marginBottom:12 }}>
                 <div style={{ fontFamily:"'Syne',sans-serif", fontSize:24, fontWeight:800, color:"#FF6B6B" }}>
                   {answeredCount}/{questions.length}
@@ -267,7 +270,6 @@ const AttemptExam = () => {
                 <div style={{ fontSize:11, color:"rgba(46,26,26,0.45)", marginTop:2 }}>Answered</div>
               </div>
 
-              {/* Marked Count */}
               {marked.length > 0 && (
                 <div style={{ padding:"10px 12px", background:"rgba(255,209,102,0.08)", borderRadius:10, textAlign:"center", marginBottom:12, border:"1px solid rgba(255,209,102,0.2)" }}>
                   <div style={{ fontFamily:"'Syne',sans-serif", fontSize:18, fontWeight:800, color:"#FFD166" }}>
@@ -277,7 +279,6 @@ const AttemptExam = () => {
                 </div>
               )}
 
-              {/* Submit Button */}
               <button onClick={() => setShowConfirm(true)} disabled={submitting}
                 style={{ width:"100%", padding:"12px", background:"#FF6B6B", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 12px rgba(255,107,107,0.3)", opacity: submitting ? 0.7 : 1 }}>
                 📤 Submit Exam
@@ -287,7 +288,7 @@ const AttemptExam = () => {
         </div>
       </div>
 
-      {/* ── CONFIRM SUBMIT MODAL ── */}
+      {/* CONFIRM SUBMIT MODAL */}
       {showConfirm && (
         <div style={{ position:"fixed", inset:0, background:"rgba(10,10,20,0.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, backdropFilter:"blur(4px)" }}
           onClick={() => setShowConfirm(false)}>

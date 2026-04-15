@@ -108,6 +108,11 @@ def fetch_question_paper(request, exam_id):
         'option_c': q.option_c,
         'option_d': q.option_d,
     } for q in questions_qs]
+    exam_start = timezone.make_aware(
+     datetime.combine(exam.exam_date, exam.start_time)
+    )
+    exam_end = exam_start + timedelta(minutes=exam.duration_minutes)
+
 
     return Response({
         'exam': exam.exam_name,
@@ -115,6 +120,7 @@ def fetch_question_paper(request, exam_id):
         'exam_date': str(exam.exam_date),
         'start_time': str(exam.start_time),
         'duration_minutes': exam.duration_minutes,
+        'end_time': exam_end.isoformat(),
         'questions': questions,
         'total_questions': len(questions),
     })
